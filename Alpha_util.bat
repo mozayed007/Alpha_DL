@@ -8,13 +8,25 @@ REM Version info
 set "VERSION=1.0.1"
 set "LAST_UPDATED=2025-01"
 
-echo ===================================================
-echo          Loading Advanced YouTube Downloader
-echo                  Version %VERSION%
-echo ===================================================
-echo.
-echo Checking dependencies...
-echo.
+REM Set up directory structure
+set "BASE_DIR=%~dp0"
+set "download_dir=%BASE_DIR%downloads"
+set "TEMP_DIR=%download_dir%\.temp"
+set "CACHE_DIR=%download_dir%\.cache"
+
+REM Create directory structure
+if not exist "%download_dir%" md "%download_dir%"
+if not exist "%download_dir%\videos" md "%download_dir%\videos"
+if not exist "%download_dir%\playlists" md "%download_dir%\playlists"
+if not exist "%download_dir%\channels" md "%download_dir%\channels"
+if not exist "%download_dir%\audio" md "%download_dir%\audio"
+if not exist "%TEMP_DIR%" md "%TEMP_DIR%"
+if not exist "%CACHE_DIR%" md "%CACHE_DIR%"
+
+REM Set instance-specific temp directory
+set "instance_id=%RANDOM%"
+set "instance_temp=%TEMP_DIR%\%instance_id%"
+md "%instance_temp%" 2>nul
 
 REM Generate unique ID
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set datetime=%%I
@@ -61,10 +73,6 @@ if not "!MISSING_DEPS!"=="" (
     exit /b 1
 )
 
-REM Set default download directory
-if not defined download_dir set "download_dir=%~dp0downloads"
-if not exist "!download_dir!" md "!download_dir!" 2>nul
-
 REM Default settings
 set "use_sponsorblock=false"
 set "use_aria2c=true"
@@ -106,6 +114,24 @@ findstr /I "amf" "%instance_temp%\hwaccels.txt" >nul && (
 echo [!] No hardware acceleration available
 :hw_accel_done
 del "%instance_temp%\hwaccels.txt" 2>nul
+
+REM Configure optimized download settings
+set "ytdlp_base_args=--no-mtime --progress --no-warnings --no-continue --no-part"
+
+REM Configure aria2c for faster downloads
+set "aria2c_args=--downloader aria2c --downloader-args aria2c:-x16 -s16 -j16 -k1M --optimize-concurrent-downloads=true --file-allocation=none --continue=true --auto-file-renaming=false --allow-overwrite=true"
+
+REM Configure ffmpeg for hardware acceleration
+set "ffmpeg_args="
+if "%hw_accel_available%"=="true" (
+    set "ffmpeg_args=--postprocessor-args ffmpeg:-hwaccel !hw_accel! -hwaccel_device !hw_accel_device! -threads auto"
+)
+
+REM Configure output templates with better organization
+set "video_template=!download_dir!\videos\%%(title)s [%%(id)s]\%%(title)s.%%(ext)s"
+set "playlist_template=!download_dir!\playlists\%%(playlist_title)s\%%(playlist_index)02d - %%(title)s.%%(ext)s"
+set "channel_template=!download_dir!\channels\%%(channel)s\%%(upload_date)s - %%(title)s.%%(ext)s"
+set "audio_template=!download_dir!\audio\%%(title)s\%%(title)s.%%(ext)s"
 
 REM Main menu loop
 :menu
@@ -192,53 +218,43 @@ echo.
 set /p "quality=Select quality (1-3): "
 set /p "link=Enter video URL: "
 
+REM Set format based on quality selection
 if "%quality%"=="1" set "format_selection=bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
 if "%quality%"=="2" set "format_selection=bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
 if "%quality%"=="3" set "format_selection=bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best"
 
-REM Create unique temp directory for this instance
-md "%TEMP%\ytdl_temp_%instance_id%" 2>nul
-
-REM Add before download commands
 echo.
 echo [Download Progress]
 echo • URL: %link%
 echo • Quality: %quality_str%
-echo • Output: %download_dir%
+echo • Output: !video_template!
 echo • Hardware Accel: %hw_accel_available%
 echo.
 echo Starting download...
 echo Press Q to quit, P to pause
 echo.
 
-REM For yt-dlp downloads:
-set "ytdlp_hw_args="
-if "%hw_accel_available%"=="true" (
-    set "ytdlp_hw_args=--postprocessor-args "ffmpeg:-hwaccel !hw_accel! -hwaccel_device !hw_accel_device! -hwaccel_output_format !hw_accel!""
-)
-
-REM Using optimized download settings matching playlist performance
-set "ytdlp_base_args=--no-mtime --ignore-errors --no-continue --no-overwrites --progress"
-set "ytdlp_aria_args=--downloader aria2c --downloader-args "aria2c:-x 16 -k 1M -s 16 -j 16 --optimize-concurrent-downloads=true --file-allocation=none --async-dns=false --continue=true --allow-overwrite=true --auto-file-renaming=false""
-set "ytdlp_format_args=--merge-output-format mp4 --no-keep-fragments --buffer-size 16M --http-chunk-size 10M"
-set "ytdlp_concurrent_args=--concurrent-fragments 5 -N 5"
-
-REM For video downloads (single/playlist/channel):
-set "output_template=%download_dir%\%%(title)s.%%(ext)s"
-
+REM Download with all features enabled
 yt-dlp.exe %ytdlp_base_args% ^
     -f "%format_selection%" ^
-    -o "%output_template%" ^
-    --write-auto-sub --embed-subs --embed-thumbnail --embed-metadata ^
-    %ytdlp_aria_args% ^
-    %ytdlp_format_args% ^
-    %ytdlp_concurrent_args% ^
-    %ytdlp_hw_args% ^
-    --cache-dir "%instance_temp%" ^
+    -o "!video_template!" ^
+    --write-description ^
+    --write-thumbnail ^
+    --convert-thumbnails webp ^
+    --embed-thumbnail ^
+    --embed-metadata ^
+    --embed-chapters ^
+    --write-auto-sub ^
+    --sub-langs "en.*" ^
+    --embed-subs ^
+    --merge-output-format mp4 ^
+    %aria2c_args% ^
+    %ffmpeg_args% ^
+    --cache-dir "!CACHE_DIR!" ^
     "%link%"
 
 REM Cleanup temp directory
-rd /s /q "%TEMP%\ytdl_temp_%instance_id%" 2>nul
+rd /s /q "%instance_temp%" 2>nul
 
 if errorlevel 1 (
     echo.
@@ -284,34 +300,37 @@ echo.
 set /p "quality=Select quality (1-3): "
 set /p "link=Enter playlist URL: "
 
-REM Generate a unique ID for this instance
-set "instance_id=%RANDOM%"
-
+REM Set format based on quality selection
 if "%quality%"=="1" set "format_selection=bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-if "%quality%"=="2" set "format_selection=bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best"
-if "%quality%"=="3" set "format_selection=bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best"
+if "%quality%"=="2" set "format_selection=bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
+if "%quality%"=="3" set "format_selection=bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best"
 
-REM Create unique temp directory for this instance
-md "%TEMP%\ytdl_temp_%instance_id%" 2>nul
+echo.
+echo [Download Progress]
+echo • URL: %link%
+echo • Quality: %quality_str%
+echo • Output: !playlist_template!
+echo • Hardware Accel: %hw_accel_available%
+echo.
+echo Starting download...
+echo Press Q to quit, P to pause
+echo.
 
 REM Additional playlist arguments
 set "playlist_args=--yes-playlist --playlist-random --ignore-errors --no-abort-on-error"
 
-REM For playlist downloads
 yt-dlp.exe %ytdlp_base_args% ^
     %playlist_args% ^
     -f "%format_selection%" ^
-    -o "%output_template%" ^
+    -o "!playlist_template!" ^
     --write-auto-sub --embed-subs --embed-thumbnail --embed-metadata ^
-    %ytdlp_aria_args% ^
-    %ytdlp_format_args% ^
-    %ytdlp_concurrent_args% ^
-    %ytdlp_hw_args% ^
-    --cache-dir "%instance_temp%" ^
+    %aria2c_args% ^
+    %ffmpeg_args% ^
+    --cache-dir "!CACHE_DIR!" ^
     "%link%"
 
 REM Cleanup temp directory
-rd /s /q "%TEMP%\ytdl_temp_%instance_id%" 2>nul
+rd /s /q "%instance_temp%" 2>nul
 
 if errorlevel 1 (
     echo.
@@ -384,7 +403,7 @@ echo Press Q to quit, P to pause
 echo.
 
 REM Using optimized download settings for channel
-set "output_template=%download_dir%\%%(uploader)s\%%(title)s.%%(ext)s"
+set "output_template=%download_dir%\channels\%%(uploader)s\%%(title)s.%%(ext)s"
 
 REM Channel monitor specific arguments
 set "monitor_args=--download-archive "%monitor_archive%" --playlist-reverse --no-overwrites --continue"
@@ -395,10 +414,8 @@ yt-dlp.exe %ytdlp_base_args% ^
     -f "%format_selection%" ^
     -o "%output_template%" ^
     --write-auto-sub --embed-subs --embed-thumbnail --embed-metadata ^
-    %ytdlp_aria_args% ^
-    %ytdlp_format_args% ^
-    %ytdlp_concurrent_args% ^
-    %ytdlp_hw_args% ^
+    %aria2c_args% ^
+    %ffmpeg_args% ^
     --cache-dir "%instance_temp%" ^
     %channel_args% ^
     "%link%"
@@ -480,15 +497,14 @@ set "audio_post_args=--embed-thumbnail --embed-metadata --postprocessor-args "ff
 yt-dlp.exe %ytdlp_base_args% ^
     %audio_format_args% ^
     %audio_post_args% ^
-    %ytdlp_aria_args% ^
-    %ytdlp_concurrent_args% ^
-    %ytdlp_hw_args% ^
+    %aria2c_args% ^
+    %ffmpeg_args% ^
     --cache-dir "%instance_temp%" ^
-    -o "%output_template%" ^
+    -o "%audio_template%" ^
     "%link%"
 
 REM Cleanup temp directory
-rd /s /q "%TEMP%\ytdl_temp_%instance_id%" 2>nul
+rd /s /q "%instance_temp%" 2>nul
 
 if errorlevel 1 (
     echo.
@@ -547,21 +563,19 @@ echo Press Q to quit, P to pause
 echo.
 
 REM Using optimized download settings for playlist audio
-set "output_template=%download_dir%\%%(playlist)s\%%(playlist_index)s - %%(title)s.%%(ext)s"
+set "output_template=%download_dir%\playlists\%%(playlist)s\%%(playlist_index)s - %%(title)s.%%(ext)s"
 
 yt-dlp.exe %ytdlp_base_args% ^
     -f "%format_selection%" ^
     -o "%output_template%" ^
     --write-auto-sub --embed-subs --embed-thumbnail --embed-metadata ^
-    %ytdlp_aria_args% ^
-    %ytdlp_format_args% ^
-    %ytdlp_concurrent_args% ^
-    %ytdlp_hw_args% ^
+    %aria2c_args% ^
+    %ffmpeg_args% ^
     --cache-dir "%instance_temp%" ^
     "%link%"
 
 REM Cleanup temp directory
-rd /s /q "%TEMP%\ytdl_temp_%instance_id%" 2>nul
+rd /s /q "%instance_temp%" 2>nul
 
 if errorlevel 1 (
     echo.
@@ -704,16 +718,14 @@ set "instance_id=%RANDOM%"
 md "%TEMP%\ytdl_temp_%instance_id%" 2>nul
 
 REM Enhanced live stream settings for yt-dlp
-set "output_template=%download_dir%\%%(uploader)s\%%(upload_date)s_%%(title)s.%%(ext)s"
+set "output_template=%download_dir%\live\%%(uploader)s\%%(upload_date)s_%%(title)s.%%(ext)s"
 
 yt-dlp.exe %ytdlp_base_args% ^
     -f "%format_selection%" ^
     -o "%output_template%" ^
     --write-auto-sub --embed-subs --embed-thumbnail --embed-metadata ^
-    %ytdlp_aria_args% ^
-    %ytdlp_format_args% ^
-    %ytdlp_concurrent_args% ^
-    %ytdlp_hw_args% ^
+    %aria2c_args% ^
+    %ffmpeg_args% ^
     --cache-dir "%instance_temp%" ^
     "%link%"
 
@@ -734,283 +746,13 @@ yt-dlp.exe %ytdlp_base_args% ^
     -f "%format_selection%" ^
     -o "%output_template%" ^
     --write-auto-sub --embed-subs --embed-thumbnail --embed-metadata ^
-    %ytdlp_aria_args% ^
-    %ytdlp_format_args% ^
-    %ytdlp_concurrent_args% ^
-    %ytdlp_hw_args% ^
+    %aria2c_args% ^
+    %ffmpeg_args% ^
     --cache-dir "%instance_temp%" ^
     "%link%"
 
 :cleanup
 REM Clean only this instance's temp directory
-rd /s /q "%instance_temp%" 2>nul
-
-REM Save settings to instance-specific file
-(
-    echo use_sponsorblock=!use_sponsorblock!
-    echo use_aria2c=!use_aria2c!
-    echo embed_subs=!embed_subs!
-    echo embed_thumb=!embed_thumb!
-    echo embed_meta=!embed_meta!
-    echo download_dir=!download_dir!
-    echo format_selection=!format_selection!
-    echo hw_accel_available=!hw_accel_available!
-    echo hw_accel=!hw_accel!
-    echo hw_accel_device=!hw_accel_device!
-) > "%instance_settings%"
-
-exit /b 0
-
-:format_menu
-cls
-echo ===================================================
-echo            Format Selection Options
-echo ===================================================
-echo 1. Best Quality (Video + Audio)
-echo 2. Maximum 4K (2160p)
-echo 3. Maximum 1080p
-echo 4. Maximum 720p
-echo 5. Custom Format Code
-echo.
-set /p "format_choice=Select format (1-5): "
-
-if "%format_choice%"=="1" set "format_selection=bestvideo+bestaudio/best"
-if "%format_choice%"=="2" set "format_selection=bestvideo[height<=2160]+bestaudio/best"
-if "%format_choice%"=="3" set "format_selection=bestvideo[height<=1080]+bestaudio/best"
-if "%format_choice%"=="4" set "format_selection=bestvideo[height<=720]+bestaudio/best"
-if "%format_choice%"=="5" (
-    echo Enter custom format code:
-    echo Example: bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]
-    set /p "format_selection="
-)
-
-:network_settings
-cls
-echo ===================================================
-echo            Network Settings
-echo ===================================================
-echo 1. Set Download Speed Limit
-echo 2. Configure Proxy
-echo 3. Set Retries
-echo 4. Back to Menu
-echo.
-set /p "net_choice=Select option (1-4): "
-
-if "%net_choice%"=="1" (
-    set /p "speed_limit=Enter speed limit (e.g., 1M, 500K): "
-    set "aria2c_args=!aria2c_args! --max-download-limit=%speed_limit%"
-)
-
-:cookie_settings
-cls
-echo ===================================================
-echo            Cookie Configuration
-echo ===================================================
-echo 1. Select Cookie File
-echo 2. Remove Cookie File
-echo 3. Back to Menu
-echo.
-set /p "cookie_choice=Select option (1-3): "
-
-if "%cookie_choice%"=="1" (
-    set /p "cookies_file=Enter path to cookies.txt: "
-    if not exist "!cookies_file!" (
-        echo Error: File not found
-        pause
-        goto cookie_settings
-    )
-)
-
-:detect_hw_accel
-echo Detecting hardware acceleration capabilities...
-set "hw_accel="
-set "hw_accel_device="
-set "hw_accel_available=false"
-
-REM Check for NVIDIA GPU (NVENC)
-nvidia-smi >nul 2>&1
-if not errorlevel 1 (
-    set "has_nvidia=true"
-    set "hw_accel=nvenc"
-    set "hw_accel_device=cuda"
-    set "hw_accel_available=true"
-) else (
-    set "has_nvidia=false"
-)
-
-REM Check for Intel QuickSync
-powershell -Command "Get-WmiObject Win32_VideoController | Where-Object {$_.Name -like '*Intel*'}" >nul 2>&1
-if not errorlevel 1 (
-    set "has_intel=true"
-    if not defined hw_accel (
-        set "hw_accel=qsv"
-        set "hw_accel_device=qsv"
-        set "hw_accel_available=true"
-    )
-) else (
-    set "has_intel=false"
-)
-
-REM Check for AMD GPU (AMF)
-powershell -Command "Get-WmiObject Win32_VideoController | Where-Object {$_.Name -like '*AMD*' -or $_.Name -like '*Radeon*'}" >nul 2>&1
-if not errorlevel 1 (
-    set "has_amd=true"
-    if not defined hw_accel (
-        set "hw_accel=amf"
-        set "hw_accel_device=opencl"
-        set "hw_accel_available=true"
-    )
-) else (
-    set "has_amd=false"
-)
-
-REM Set ffmpeg flags based on available hardware
-if "%hw_accel_available%"=="true" (
-    set "ffmpeg_hw_flags=-hwaccel !hw_accel! -hwaccel_device !hw_accel_device!"
-) else (
-    set "ffmpeg_hw_flags="
-)
-
-REM For ytarchive:
-set "ytarchive_hw_args="
-if "%hw_accel_available%"=="true" (
-    set "ytarchive_hw_args=--ffmpeg-path "ffmpeg -hwaccel !hw_accel! -hwaccel_device !hw_accel_device! -hwaccel_output_format !hw_accel!""
-)
-
-:hw_accel_menu
-cls
-echo ===================================================
-echo         Hardware Acceleration Settings
-echo ===================================================
-echo Current Status:
-if "%hw_accel_available%"=="true" (
-    echo Hardware Acceleration: Enabled
-    echo Type: !hw_accel! (!hw_accel_device!)
-) else (
-    echo Hardware Acceleration: Disabled
-)
-echo.
-echo Available Options:
-echo 1. Auto-detect and configure (Recommended)
-echo 2. Force CPU encoding (No hardware acceleration)
-echo 3. Show hardware information
-echo 4. Back to menu
-echo.
-set /p "hw_choice=Select option (1-4): "
-
-if "%hw_choice%"=="1" goto detect_hw_accel
-if "%hw_choice%"=="2" (
-    set "hw_accel_available=false"
-    set "hw_accel="
-    set "hw_accel_device="
-    set "ffmpeg_hw_flags="
-    echo Hardware acceleration disabled
-    pause
-)
-if "%hw_choice%"=="3" (
-    echo.
-    echo Hardware Information:
-    echo - NVIDIA GPU: !has_nvidia!
-    echo - Intel QuickSync: !has_intel!
-    echo - AMD GPU: !has_amd!
-    echo.
-    echo Current Configuration:
-    echo - Hardware Acceleration: !hw_accel_available!
-    echo - Acceleration Type: !hw_accel!
-    echo - Device: !hw_accel_device!
-    pause
-)
-if "%hw_choice%"=="4" goto menu
-
-:handle_error
-echo.
-echo ╔══════════════════════════════════════════════════╗
-echo ║                   Error Occurred                  ║
-echo ╚══════════════════════════════════════════════════╝
-echo.
-echo Error Details:
-echo • Code: %errorlevel%
-echo • Type: %error_type%
-echo.
-echo Possible Solutions:
-echo 1. Check internet connection
-echo 2. Verify URL is accessible
-echo 3. Check available disk space
-echo 4. Try without hardware acceleration
-echo 5. Check for tool updates
-echo.
-
-:show_help
-cls
-echo ╔══════════════════════════════════════════════════╗
-echo ║                     Help Guide                    ║
-echo ╚══════════════════════════════════════════════════╝
-echo.
-echo Common Tasks:
-echo • Download Video: Option 1 - Best for single videos
-echo • Download Playlist: Option 2 - Optimized for multiple videos
-echo • Extract Audio: Option 4 - Convert videos to MP3/M4A
-echo • Live Streams: Option 5 - Use ytarchive for best results
-echo.
-echo Tips:
-echo • Use hardware acceleration for faster processing
-echo • Enable aria2c for faster downloads
-echo • Check cookies.txt for member-only content
-echo • Use quality presets for consistent downloads
-echo.
-
-:show_status
-echo.
-echo Current Status:
-echo • Download Speed: %current_speed%
-echo • Progress: %progress%%
-echo • ETA: %eta%
-echo • File Size: %size%
-echo.
-
-:save_config
-(
-    echo VERSION=%VERSION%
-    echo download_dir=!download_dir!
-    echo use_sponsorblock=!use_sponsorblock!
-    echo use_aria2c=!use_aria2c!
-    echo embed_subs=!embed_subs!
-    echo embed_thumb=!embed_thumb!
-    echo embed_meta=!embed_meta!
-    echo hw_accel_available=!hw_accel_available!
-    echo hw_accel=!hw_accel!
-    echo hw_accel_device=!hw_accel_device!
-    echo format_selection=!format_selection!
-) > "config.txt"
-
-:download_options
-echo Additional Options:
-echo 1. Enable SponsorBlock    [%use_sponsorblock%]
-echo 2. Download Subtitles     [%embed_subs%]
-echo 3. Download Thumbnail     [%embed_thumb%]
-echo 4. Add Metadata          [%embed_meta%]
-echo 5. Use aria2c            [%use_aria2c%]
-echo.
-
-:quality_menu
-cls
-echo ╔══════════════════════════════════════════════════╗
-echo ║              Quality Selection                    ║
-echo ╚══════════════════════════════════════════════════╝
-echo.
-echo Video Quality:
-echo 1. Maximum Quality  │ Best video + audio
-echo 2. 4K (2160p)      │ Ultra HD
-echo 3. 1080p60         │ Full HD with 60fps
-echo 4. 1080p           │ Full HD
-echo 5. 720p60          │ HD with 60fps
-echo 6. 720p            │ HD
-echo.
-echo Note: Higher quality needs more bandwidth
-echo      60fps options need more processing power
-
-:cleanup
-echo Cleaning up temporary files...
 rd /s /q "%instance_temp%" 2>nul
 exit /b 0
 
