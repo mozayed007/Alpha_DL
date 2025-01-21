@@ -1,5 +1,5 @@
 # Set default behavior to automatically normalize line endings
-* text=auto
+* text=auto eol=crlf
 
 # Force batch scripts to always use CRLF line endings
 *.bat text eol=crlf
@@ -7,3 +7,7 @@
 
 # Force bash scripts to always use LF line endings
 *.sh text eol=lf
+
+# Binary files
+*.exe binary
+*.dll binary
