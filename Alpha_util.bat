@@ -1,11 +1,12 @@
 @echo off
+chcp 65001 >nul
 setlocal EnableDelayedExpansion
 title Advanced YouTube Downloader (Alpha Utility)
 color 0b
 
 REM Add version and last updated info
 set "VERSION=1.0.1"
-set "LAST_UPDATED=2024-03"
+set "LAST_UPDATED=2025-01"
 
 REM Add a loading screen
 echo ===================================================
@@ -30,6 +31,10 @@ set "instance_settings=%instance_temp%\settings.txt"
 
 REM Improve dependency check with more user-friendly output
 set "MISSING_DEPS="
+
+echo Checking core dependencies...
+echo.
+
 echo Checking yt-dlp...
 where yt-dlp >nul 2>&1 || (
     set "MISSING_DEPS=!MISSING_DEPS! yt-dlp"
@@ -42,14 +47,36 @@ where ffmpeg >nul 2>&1 || (
     echo [X] ffmpeg not found
 ) && echo [√] ffmpeg found
 
-REM Add similar checks for aria2c and ytarchive
+echo Checking aria2c...
+where aria2c >nul 2>&1 || (
+    set "MISSING_DEPS=!MISSING_DEPS! aria2c"
+    echo [X] aria2c not found
+) && echo [√] aria2c found
+
+echo Checking ytarchive...
+where ytarchive >nul 2>&1 || (
+    set "MISSING_DEPS=!MISSING_DEPS! ytarchive"
+    echo [X] ytarchive not found
+) && echo [√] ytarchive found
+
+echo.
+echo Checking FFmpeg DLLs...
+for %%F in (avcodec avdevice avfilter avformat avutil postproc swresample swscale) do (
+    if not exist "%~dp0%%F-*.dll" (
+        echo [X] Missing FFmpeg DLL: %%F-*.dll
+        set "MISSING_DEPS=!MISSING_DEPS! %%F.dll"
+    ) else (
+        echo [√] Found %%F DLL
+    )
+)
 
 if not "!MISSING_DEPS!"=="" (
-    echo Error: Missing required programs:!MISSING_DEPS!
-    echo Please ensure these programs are installed and in your PATH
+    echo.
+    echo Error: Missing required components:!MISSING_DEPS!
+    echo Please ensure these components are installed and in your PATH
     echo Download links:
     echo - yt-dlp: https://github.com/yt-dlp/yt-dlp/releases
-    echo - ffmpeg: https://ffmpeg.org/download.html
+    echo - ffmpeg: https://github.com/BtbN/FFmpeg-Builds/releases
     echo - aria2c: https://github.com/aria2/aria2/releases
     echo - ytarchive: https://github.com/Kethsar/ytarchive/releases
     pause
@@ -78,6 +105,11 @@ if errorlevel 1 (
 
 :dir_exists
 
+REM Initialize essential variables at startup
+set "format_selection=bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+set "quality_str=Best Quality"
+set "monitor_args=--progress-template %%(progress._percent_str)s %%(progress._speed_str)s %%(progress._eta_str)s"
+
 REM Initialize settings with defaults
 if not defined use_sponsorblock set "use_sponsorblock=false"
 if not defined use_aria2c set "use_aria2c=true"
@@ -86,33 +118,65 @@ if not defined auto_subs set "auto_subs=true"
 if not defined embed_thumb set "embed_thumb=true"
 if not defined embed_meta set "embed_meta=true"
 
-REM Set default download directory to the script's current folder
-set "download_dir=%~dp0"
-set "config_file=%~dp0yt-dlp.conf"
+REM Hardware acceleration detection and setup
+:detect_hw_accel
+echo Detecting hardware acceleration support...
+set "hw_accel_available=false"
+set "hw_accel="
+set "hw_accel_device="
 
-REM Default settings
-set "use_aria2c=true"
-set "use_sponsorblock=true"
-set "embed_subs=true"
-set "embed_thumb=true"
-set "embed_meta=true"
-set "auto_subs=true"
-set "cookies_file="
-set "use_proxy="
+REM Create temporary file for hardware acceleration check
+set "hwaccel_temp=%instance_temp%\hwaccels.txt"
+ffmpeg -hide_banner -hwaccels > "%hwaccel_temp%" 2>nul
 
-REM Format definitions with improved compatibility
-set "format_best=bestvideo*+bestaudio/best"
-set "format_1080=bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
-set "format_720=bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+REM Check for NVIDIA CUDA
+findstr /I "cuda" "%hwaccel_temp%" >nul && (
+    set "hw_accel_available=true"
+    set "hw_accel=cuda"
+    set "hw_accel_device=0"
+    echo [√] NVIDIA GPU acceleration available
+    goto :hw_accel_done
+)
+
+REM Check for Intel QSV
+findstr /I "qsv" "%hwaccel_temp%" >nul && (
+    set "hw_accel_available=true"
+    set "hw_accel=qsv"
+    set "hw_accel_device="
+    echo [√] Intel Quick Sync acceleration available
+    goto :hw_accel_done
+)
+
+REM Check for AMD AMF
+findstr /I "amf" "%hwaccel_temp%" >nul && (
+    set "hw_accel_available=true"
+    set "hw_accel=amf"
+    set "hw_accel_device="
+    echo [√] AMD GPU acceleration available
+    goto :hw_accel_done
+)
+
+echo [!] No hardware acceleration available, using CPU
+:hw_accel_done
+del "%hwaccel_temp%" 2>nul
+
+REM Optimize aria2c parameters
+set "ytdlp_aria_args=--downloader aria2c --downloader-args "aria2c:-x 16 -k 1M -s 16 -j 16 --optimize-concurrent-downloads=true --file-allocation=none --async-dns=false --continue=true --allow-overwrite=true --auto-file-renaming=false --retry-wait=1 --max-tries=5 --connect-timeout=10 --timeout=10""
+
+REM Set ytarchive parameters
+set "ytarchive_retry_args=--retry-stream 60 --retry-frags 10"
+set "ytarchive_format_args=--add-metadata --write-description --write-thumbnail"
 
 REM Initialize hardware acceleration settings by default
-call :detect_hw_accel
-
-REM Add this to the initial settings block
 if not defined hw_accel_available set "hw_accel_available=false"
 if not defined hw_accel set "hw_accel="
 if not defined hw_accel_device set "hw_accel_device="
 if not defined ffmpeg_hw_flags set "ffmpeg_hw_flags="
+
+REM Standard optimized yt-dlp arguments for all download types
+set "ytdlp_base_args=--no-mtime --ignore-errors --no-continue --no-overwrites --progress"
+set "ytdlp_format_args=--merge-output-format mp4 --no-keep-fragments --buffer-size 16M --http-chunk-size 10M"
+set "ytdlp_concurrent_args=--concurrent-fragments 5 -N 5"
 
 REM Handle Ctrl+C gracefully
 if "%~1"=="HANDLED" goto :mainStart
@@ -135,7 +199,8 @@ timeout /t 1 /nobreak >nul
 goto cleanup
 
 :error
-echo Invalid input. Please try again.
+echo.
+echo Invalid input!
 timeout /t 2 /nobreak >nul
 goto menu
 
@@ -145,85 +210,47 @@ echo Updating yt-dlp...
 yt-dlp.exe -U
 pause
 goto menu
-:handle_exit
-echo.
-choice /c MQ /n /m "Exit (Q) or return to Menu (M)? "
-if errorlevel 2 goto clean_exit
-if errorlevel 1 goto menu
 
-:clean_exit
-echo.
-echo Cleaning up and exiting...
-timeout /t 1 /nobreak >nul
-goto cleanup
 :menu
 cls
-echo ╔══════════════════════════════════════════════════╗
-echo ║         Advanced YouTube Downloader v%VERSION%    ║
-echo ╚══════════════════════════════════════════════════╝
+echo ══════════════════════════════════════════════════════
+echo         Advanced YouTube Downloader v%VERSION%        
+echo ══════════════════════════════════════════════════════
 echo.
-echo [Download Options]
-echo  1 │ Single Video     4 │ Audio Only
-echo  2 │ Playlist         5 │ Live Stream
-echo  3 │ Channel          6 │ Custom Format
+echo [Basic Downloads]
+echo  1. Single Video         5. Live Stream
+echo  2. Playlist             6. Custom Format
+echo  3. Channel              7. Extract Audio
+echo  4. Audio Only           8. Batch Download
+echo.
+echo [Advanced Features]
+echo  9. Show Video Info     11. Download Thumbnail
+echo  10. List Formats       12. Download Subtitles
 echo.
 echo [Settings]
-echo  7 │ Download Dir     10 │ Network Settings
-echo  8 │ Quality          11 │ Hardware Accel
-echo  9 │ Features         12 │ Update Tools
-echo.
-echo Current Settings:
-echo • Directory: !download_dir!
-echo • Hardware Accel: !hw_accel_available! (!hw_accel!)
-echo • Format: !format_selection!
-echo.
-echo  [Download Options]
-echo  1. Download Single Video (Best for regular videos)
-echo  2. Download Playlist    (Optimized for multiple videos)
-echo  3. Download Channel    (Full channel archiving)
-echo  4. Download Audio Only (Music/Audio extraction)
-echo  5. Download Live Stream (Live/VOD with ytarchive)
-echo  6. Download with Custom Format (Advanced users)
-echo  7. Extract Audio from Video File (Local files)
-echo.
-echo  [Configuration]
-echo  8. Change Download Directory
-echo     Current: !download_dir!
-echo  9. Format Selection Options
-echo     Current: !format_selection!
-echo  10. Toggle Features
-echo      - SponsorBlock: !use_sponsorblock!
-echo      - Aria2c: !use_aria2c!
-echo      - Subtitles: !embed_subs!
-echo      - Thumbnails: !embed_thumb!
-echo      - Metadata: !embed_meta!
-echo  11. Network Settings (Proxy/Speed limits)
-echo  12. Cookie Configuration (For private/member videos)
-echo  13. Update yt-dlp (Check for new version)
-echo.
-echo  [Hardware Acceleration]
-if "%hw_accel_available%"=="true" (
-    echo      Status: Enabled (!hw_accel! - !hw_accel_device!)
-) else (
-    echo      Status: Disabled (CPU encoding)
-)
-echo.
-echo  [Utilities]
-echo  14. Show Video Information (Format details)
-echo  15. List Available Formats (Resolution/codecs)
-echo  16. Download Subtitles Only
-echo  17. Download Thumbnail Only
-echo  18. Batch Download from File (URL list)
-echo.
-echo  19. Hardware Acceleration Settings
+echo  13. Download Directory  16. Network Settings
+echo  14. Quality Settings    17. Hardware Accel
+echo  15. Feature Toggle      18. Cookie Settings
+echo  19. Update yt-dlp
 echo.
 echo  20. Exit
 echo.
+echo Current Settings:
+echo • Directory: !download_dir!
+echo • Format: !format_selection!
+echo • Hardware: !hw_accel_available! (!hw_accel!)
+echo • Features:
+echo   ├─ SponsorBlock: !use_sponsorblock!
+echo   ├─ Aria2c: !use_aria2c!
+echo   ├─ Subtitles: !embed_subs!
+echo   ├─ Thumbnails: !embed_thumb!
+echo   └─ Metadata: !embed_meta!
+echo.
 echo Tips:
-echo - Use aria2c for faster downloads
-echo - Check cookies for member-only content
-echo - Use ytarchive for live streams
-echo ===================================================
+echo • Use aria2c for faster downloads
+echo • Check cookies for member-only content
+echo • Use ytarchive for live streams
+echo ══════════════════════════════════════════════════════
 echo.
 set /p "choice=Enter your choice (1-20): "
 
@@ -238,21 +265,22 @@ if "%choice%"=="4" goto audio_only
 if "%choice%"=="5" goto live_stream
 if "%choice%"=="6" goto custom_format
 if "%choice%"=="7" goto extract_audio
-if "%choice%"=="8" goto change_directory
-if "%choice%"=="9" goto format_menu
-if "%choice%"=="10" goto toggle_features
-if "%choice%"=="11" goto network_settings
-if "%choice%"=="12" goto cookie_settings
-if "%choice%"=="13" goto update_ytdlp
-if "%choice%"=="14" goto show_info
-if "%choice%"=="15" goto list_formats
-if "%choice%"=="16" goto download_subs
-if "%choice%"=="17" goto download_thumb
-if "%choice%"=="18" goto batch_download
-if "%choice%"=="19" goto hw_accel_menu
-if "%choice%"=="20" goto end
+if "%choice%"=="8" goto batch_download
+if "%choice%"=="9" goto show_info
+if "%choice%"=="10" goto list_formats
+if "%choice%"=="11" goto download_thumb
+if "%choice%"=="12" goto download_subs
+if "%choice%"=="13" goto change_directory
+if "%choice%"=="14" goto quality_settings
+if "%choice%"=="15" goto toggle_features
+if "%choice%"=="16" goto network_settings
+if "%choice%"=="17" goto hw_accel_menu
+if "%choice%"=="18" goto cookie_settings
+if "%choice%"=="19" goto update_ytdlp
+if "%choice%"=="20" goto handle_exit
 
 :download_video
+set "previous_operation=download_video"
 cls
 echo ===================================================
 echo              Download Single Video
@@ -293,7 +321,7 @@ if "%hw_accel_available%"=="true" (
 )
 
 REM Using optimized download settings matching playlist performance
-set "ytdlp_base_args=--no-mtime --ignore-errors --no-continue --no-overwrites"
+set "ytdlp_base_args=--no-mtime --ignore-errors --no-continue --no-overwrites --progress"
 set "ytdlp_aria_args=--downloader aria2c --downloader-args "aria2c:-x 16 -k 1M -s 16 -j 16 --optimize-concurrent-downloads=true --file-allocation=none --async-dns=false --continue=true --allow-overwrite=true --auto-file-renaming=false""
 set "ytdlp_format_args=--merge-output-format mp4 --no-keep-fragments --buffer-size 16M --http-chunk-size 10M"
 set "ytdlp_concurrent_args=--concurrent-fragments 5 -N 5"
@@ -345,6 +373,7 @@ pause
 goto menu
 
 :download_playlist
+set "previous_operation=download_playlist"
 cls
 echo ===================================================
 echo              Download Playlist
@@ -417,6 +446,7 @@ pause
 goto menu
 
 :download_channel
+set "previous_operation=download_channel"
 cls
 echo ===================================================
 echo              Download Channel
@@ -593,6 +623,7 @@ pause
 goto menu
 
 :audio_playlist
+set "previous_operation=audio_playlist"
 set /p "link=Enter playlist URL: "
 set /p "audio_format=Select audio format (1=mp3, 2=m4a, 3=wav, 4=opus): "
 set "audio_ext=m4a"
@@ -665,6 +696,7 @@ pause
 goto menu
 
 :live_stream
+set "previous_operation=live_stream"
 cls
 echo ===================================================
 echo              Live Stream Archiver
@@ -948,36 +980,6 @@ if "%hw_accel_available%"=="true" (
     set "ytarchive_hw_args=--ffmpeg-path "ffmpeg -hwaccel !hw_accel! -hwaccel_device !hw_accel_device! -hwaccel_output_format !hw_accel!""
 )
 
-REM Standard optimized yt-dlp arguments for all download types
-set "ytdlp_base_args=--no-mtime --ignore-errors --no-continue --no-overwrites"
-set "ytdlp_aria_args=--downloader aria2c --downloader-args "aria2c:-x 16 -k 1M -s 16 -j 16 --optimize-concurrent-downloads=true --file-allocation=none --async-dns=false --continue=true --allow-overwrite=true --auto-file-renaming=false""
-set "ytdlp_format_args=--merge-output-format mp4 --no-keep-fragments --buffer-size 16M --http-chunk-size 10M"
-set "ytdlp_concurrent_args=--concurrent-fragments 5 -N 5"
-
-REM Standard optimized ytarchive arguments
-set "ytarchive_base_args=--threads 3 --no-frag-files --merge --vp9 -k -t"
-set "ytarchive_retry_args=--retry-stream 60 --retry-frags 10"
-set "ytarchive_format_args=--add-metadata --write-description --write-thumbnail"
-
-REM Hardware acceleration integration
-if "%hw_accel_available%"=="true" (
-    set "ytdlp_hw_args=--postprocessor-args "ffmpeg:-hwaccel !hw_accel! -hwaccel_device !hw_accel_device! -hwaccel_output_format !hw_accel!""
-    set "ytarchive_hw_args=--ffmpeg-path "ffmpeg -hwaccel !hw_accel! -hwaccel_device !hw_accel_device! -hwaccel_output_format !hw_accel!""
-) else (
-    set "ytdlp_hw_args="
-    set "ytarchive_hw_args="
-)
-
-REM For live streams with ytarchive:
-set "output_template=%download_dir%\%%(title)s.%%(ext)s"
-
-ytarchive.exe %ytarchive_base_args% ^
-    %ytarchive_retry_args% ^
-    %ytarchive_format_args% ^
-    %ytarchive_hw_args% ^
-    -o "%output_template%" ^
-    "%link%" %quality_str%
-
 :hw_accel_menu
 cls
 echo ===================================================
@@ -1110,3 +1112,27 @@ echo.
 echo Note: Higher quality needs more bandwidth
 echo      60fps options need more processing power
 
+:cleanup
+echo Cleaning up temporary files...
+rd /s /q "%instance_temp%" 2>nul
+exit /b 0
+
+:error_handler
+echo.
+echo Error occurred: !error_message!
+echo.
+echo Common issues:
+echo • Network connectivity problems
+echo • Video unavailable or private
+echo • Insufficient permissions
+echo • Hardware acceleration issues
+echo • Cookie/authentication required
+echo.
+choice /c RMQ /n /m "Retry (R), Return to Menu (M), or Quit (Q)? "
+if errorlevel 3 goto cleanup
+if errorlevel 2 goto menu
+if errorlevel 1 goto :retry_download
+
+:retry_download
+echo Retrying download...
+goto :%previous_operation%
