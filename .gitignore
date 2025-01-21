@@ -1,0 +1,106 @@
+# Project-specific files
+cookies.txt
+config.txt
+settings.txt
+*.conf
+downloads/
+temp/
+cache/
+*.txt
+!requirements.txt
+!README.md
+ytarchive_doc.md
+
+# Downloaded media files
+*.mp4
+*.mkv
+*.webm
+*.m4a
+*.mp3
+*.opus
+*.wav
+*.aac
+*.ogg
+*.ts
+*.part
+*.ytdl
+
+# Temporary files
+*.temp
+*.tmp
+ytdl_temp_*/
+*.download
+*.incomplete
+
+# Log files
+*.log
+error.txt
+debug.txt
+download_archive.txt
+archive.txt
+
+# Windows-specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Tool-specific files
+.env
+.vscode/
+.idea/
+*.swp
+*.bak
+*.cache
+*.DS_Store
+
+# Dependencies (if downloaded locally)
+yt-dlp.exe
+ffmpeg.exe
+aria2c.exe
+ytarchive.exe
+ffplay.exe
+ffprobe.exe
+youtube-dl.exe
+atomicparsley.exe
+phantomjs.exe
+geckodriver.exe
+chromedriver.exe
+msedgedriver.exe
+webdriver.exe
+*.dll
+avcodec-*.dll
+avdevice-*.dll
+avfilter-*.dll
+avformat-*.dll
+avutil-*.dll
+postproc-*.dll
+swresample-*.dll
+swscale-*.dll
+lib/
+include/
+
+# Compressed files
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+
+# Generated files
+*.description
+*.info.json
+*.annotations.xml
+*.live_chat.json
+*.thumbnail
+*.jpg
+*.png
+*.vtt
+*.srt
+*.ass
+
+# Instance-specific files
+instance_*/
+*.instance
+*.state 
