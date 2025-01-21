@@ -4,11 +4,10 @@ setlocal EnableDelayedExpansion
 title Advanced YouTube Downloader (Alpha Utility)
 color 0b
 
-REM Add version and last updated info
+REM Version info
 set "VERSION=1.0.1"
 set "LAST_UPDATED=2025-01"
 
-REM Add a loading screen
 echo ===================================================
 echo          Loading Advanced YouTube Downloader
 echo                  Version %VERSION%
@@ -17,24 +16,14 @@ echo.
 echo Checking dependencies...
 echo.
 
-:generate_unique_id
-REM Generate truly unique instance ID using timestamp and random
+REM Generate unique ID
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set datetime=%%I
 set "instance_id=%datetime:~0,14%_%RANDOM%"
-
-REM Create instance-specific temp directory
 set "instance_temp=%TEMP%\ytdl_temp_%instance_id%"
 md "%instance_temp%" 2>nul
 
-REM Create instance-specific settings file
-set "instance_settings=%instance_temp%\settings.txt"
-
-REM Improve dependency check with more user-friendly output
+REM Check dependencies
 set "MISSING_DEPS="
-
-echo Checking core dependencies...
-echo.
-
 echo Checking yt-dlp...
 where yt-dlp >nul 2>&1 || (
     set "MISSING_DEPS=!MISSING_DEPS! yt-dlp"
@@ -59,17 +48,6 @@ where ytarchive >nul 2>&1 || (
     echo [X] ytarchive not found
 ) && echo [√] ytarchive found
 
-echo.
-echo Checking FFmpeg DLLs...
-for %%F in (avcodec avdevice avfilter avformat avutil postproc swresample swscale) do (
-    if not exist "%~dp0%%F-*.dll" (
-        echo [X] Missing FFmpeg DLL: %%F-*.dll
-        set "MISSING_DEPS=!MISSING_DEPS! %%F.dll"
-    ) else (
-        echo [√] Found %%F DLL
-    )
-)
-
 if not "!MISSING_DEPS!"=="" (
     echo.
     echo Error: Missing required components:!MISSING_DEPS!
@@ -83,134 +61,53 @@ if not "!MISSING_DEPS!"=="" (
     exit /b 1
 )
 
-REM Create download directory if it doesn't exist
+REM Set default download directory
 if not defined download_dir set "download_dir=%~dp0downloads"
-:create_download_dir
-REM Safe directory creation with retries
-set "max_retries=5"
-set "retry_count=0"
+if not exist "!download_dir!" md "!download_dir!" 2>nul
 
-:retry_create_dir
-if exist "!download_dir!" goto :dir_exists
-md "!download_dir!" 2>nul
-if errorlevel 1 (
-    set /a "retry_count+=1"
-    if !retry_count! lss !max_retries! (
-        timeout /t 1 /nobreak >nul
-        goto :retry_create_dir
-    )
-    echo Error: Could not create download directory
-    goto :handle_exit
-)
-
-:dir_exists
-
-REM Initialize essential variables at startup
+REM Default settings
+set "use_sponsorblock=false"
+set "use_aria2c=true"
+set "embed_subs=true"
+set "auto_subs=true"
+set "embed_thumb=true"
+set "embed_meta=true"
 set "format_selection=bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
 set "quality_str=Best Quality"
-set "monitor_args=--progress-template %%(progress._percent_str)s %%(progress._speed_str)s %%(progress._eta_str)s"
 
-REM Initialize settings with defaults
-if not defined use_sponsorblock set "use_sponsorblock=false"
-if not defined use_aria2c set "use_aria2c=true"
-if not defined embed_subs set "embed_subs=true"
-if not defined auto_subs set "auto_subs=true"
-if not defined embed_thumb set "embed_thumb=true"
-if not defined embed_meta set "embed_meta=true"
-
-REM Hardware acceleration detection and setup
-:detect_hw_accel
-echo Detecting hardware acceleration support...
+REM Hardware acceleration detection
 set "hw_accel_available=false"
 set "hw_accel="
 set "hw_accel_device="
 
-REM Create temporary file for hardware acceleration check
-set "hwaccel_temp=%instance_temp%\hwaccels.txt"
-ffmpeg -hide_banner -hwaccels > "%hwaccel_temp%" 2>nul
-
-REM Check for NVIDIA CUDA
-findstr /I "cuda" "%hwaccel_temp%" >nul && (
+ffmpeg -hide_banner -hwaccels > "%instance_temp%\hwaccels.txt"
+findstr /I "cuda" "%instance_temp%\hwaccels.txt" >nul && (
     set "hw_accel_available=true"
     set "hw_accel=cuda"
     set "hw_accel_device=0"
     echo [√] NVIDIA GPU acceleration available
-    goto :hw_accel_done
+    goto hw_accel_done
 )
 
-REM Check for Intel QSV
-findstr /I "qsv" "%hwaccel_temp%" >nul && (
+findstr /I "qsv" "%instance_temp%\hwaccels.txt" >nul && (
     set "hw_accel_available=true"
     set "hw_accel=qsv"
-    set "hw_accel_device="
     echo [√] Intel Quick Sync acceleration available
-    goto :hw_accel_done
+    goto hw_accel_done
 )
 
-REM Check for AMD AMF
-findstr /I "amf" "%hwaccel_temp%" >nul && (
+findstr /I "amf" "%instance_temp%\hwaccels.txt" >nul && (
     set "hw_accel_available=true"
     set "hw_accel=amf"
-    set "hw_accel_device="
     echo [√] AMD GPU acceleration available
-    goto :hw_accel_done
+    goto hw_accel_done
 )
 
-echo [!] No hardware acceleration available, using CPU
+echo [!] No hardware acceleration available
 :hw_accel_done
-del "%hwaccel_temp%" 2>nul
+del "%instance_temp%\hwaccels.txt" 2>nul
 
-REM Optimize aria2c parameters
-set "ytdlp_aria_args=--downloader aria2c --downloader-args "aria2c:-x 16 -k 1M -s 16 -j 16 --optimize-concurrent-downloads=true --file-allocation=none --async-dns=false --continue=true --allow-overwrite=true --auto-file-renaming=false --retry-wait=1 --max-tries=5 --connect-timeout=10 --timeout=10""
-
-REM Set ytarchive parameters
-set "ytarchive_retry_args=--retry-stream 60 --retry-frags 10"
-set "ytarchive_format_args=--add-metadata --write-description --write-thumbnail"
-
-REM Initialize hardware acceleration settings by default
-if not defined hw_accel_available set "hw_accel_available=false"
-if not defined hw_accel set "hw_accel="
-if not defined hw_accel_device set "hw_accel_device="
-if not defined ffmpeg_hw_flags set "ffmpeg_hw_flags="
-
-REM Standard optimized yt-dlp arguments for all download types
-set "ytdlp_base_args=--no-mtime --ignore-errors --no-continue --no-overwrites --progress"
-set "ytdlp_format_args=--merge-output-format mp4 --no-keep-fragments --buffer-size 16M --http-chunk-size 10M"
-set "ytdlp_concurrent_args=--concurrent-fragments 5 -N 5"
-
-REM Handle Ctrl+C gracefully
-if "%~1"=="HANDLED" goto :mainStart
-start "" /b "%~f0" HANDLED %*
-exit /b
-
-:mainStart
-goto menu
-
-:handle_exit
-echo.
-choice /c MQ /n /m "Return to Menu (M) or Quit (Q)? "
-if errorlevel 2 goto clean_exit
-if errorlevel 1 goto menu
-
-:clean_exit
-echo.
-echo Cleaning up and exiting...
-timeout /t 1 /nobreak >nul
-goto cleanup
-
-:error
-echo.
-echo Invalid input!
-timeout /t 2 /nobreak >nul
-goto menu
-
-:update_ytdlp
-cls
-echo Updating yt-dlp...
-yt-dlp.exe -U
-pause
-goto menu
-
+REM Main menu loop
 :menu
 cls
 echo ══════════════════════════════════════════════════════
@@ -252,6 +149,7 @@ echo • Check cookies for member-only content
 echo • Use ytarchive for live streams
 echo ══════════════════════════════════════════════════════
 echo.
+
 set /p "choice=Enter your choice (1-20): "
 
 if "%choice%"=="" goto error
@@ -294,7 +192,6 @@ echo.
 set /p "quality=Select quality (1-3): "
 set /p "link=Enter video URL: "
 
-REM Updated format selections with unique temp directories
 if "%quality%"=="1" set "format_selection=bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
 if "%quality%"=="2" set "format_selection=bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
 if "%quality%"=="3" set "format_selection=bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best"
@@ -1136,3 +1033,6 @@ if errorlevel 1 goto :retry_download
 :retry_download
 echo Retrying download...
 goto :%previous_operation%
+
+:handle_exit
+exit /b 0
