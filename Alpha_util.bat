@@ -1,38 +1,108 @@
 @echo off
-chcp 65001 >nul
-setlocal EnableDelayedExpansion
+setlocal EnableDelayedExpansion EnableExtensions
+chcp 65001 >nul 2>&1
 title Advanced YouTube Downloader (Alpha Utility)
-color 0b
+color 0b 2>nul
 
 REM Version info
 set "VERSION=1.0.1"
 set "LAST_UPDATED=2025-01"
 
-REM Set up directory structure
+REM Disable all beeping and console sounds
+for /f %%a in ('echo prompt $H ^| cmd') do set "BS=%%a"
+set "BELL="
+set "ConsolePid="
+for /f "tokens=2 delims=;" %%a in ('tasklist /fi "imagename eq cmd.exe" /v /fo csv /nh ^| findstr /i /c:"Advanced YouTube Downloader"') do set "ConsolePid=%%~a"
+if defined ConsolePid (
+    nircmd.exe win settopmost title "Advanced YouTube Downloader" 0 >nul 2>&1
+    nircmd.exe win setsize title "Advanced YouTube Downloader" 100 100 800 600 >nul 2>&1
+)
+
+REM Set up directory structure with short paths
 set "BASE_DIR=%~dp0"
 set "download_dir=%BASE_DIR%downloads"
 set "TEMP_DIR=%download_dir%\.temp"
 set "CACHE_DIR=%download_dir%\.cache"
+set "LOG_DIR=%download_dir%\.logs"
 
-REM Create directory structure
-if not exist "%download_dir%" md "%download_dir%"
-if not exist "%download_dir%\videos" md "%download_dir%\videos"
-if not exist "%download_dir%\playlists" md "%download_dir%\playlists"
-if not exist "%download_dir%\channels" md "%download_dir%\channels"
-if not exist "%download_dir%\audio" md "%download_dir%\audio"
-if not exist "%TEMP_DIR%" md "%TEMP_DIR%"
-if not exist "%CACHE_DIR%" md "%CACHE_DIR%"
+REM Create directory structure silently
+md "%download_dir%" 2>nul
+md "%download_dir%\videos" 2>nul
+md "%download_dir%\playlists" 2>nul
+md "%download_dir%\channels" 2>nul
+md "%download_dir%\audio" 2>nul
+md "%download_dir%\live" 2>nul
+md "%TEMP_DIR%" 2>nul
+md "%CACHE_DIR%" 2>nul
+md "%LOG_DIR%" 2>nul
 
-REM Set instance-specific temp directory
-set "instance_id=%RANDOM%"
-set "instance_temp=%TEMP_DIR%\%instance_id%"
-md "%instance_temp%" 2>nul
-
-REM Generate unique ID
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set datetime=%%I
+REM Set instance-specific temp directory without output
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set datetime=%%I
+if not defined datetime (
+    echo Error: Could not get system time
+    set "datetime=00000000000000"
+)
 set "instance_id=%datetime:~0,14%_%RANDOM%"
-set "instance_temp=%TEMP%\ytdl_temp_%instance_id%"
+set "instance_temp=%TEMP_DIR%\%instance_id%"
+set "instance_log=%LOG_DIR%\%instance_id%.log"
 md "%instance_temp%" 2>nul
+
+REM Initialize error codes and messages
+set "ERROR_NETWORK=1"
+set "ERROR_UNAVAILABLE=2"
+set "ERROR_PERMISSION=3"
+set "ERROR_HW_ACCEL=4"
+set "ERROR_ARIA2C=5"
+set "ERROR_INIT=6"
+set "ERROR_UNKNOWN=9"
+
+REM Error handling function
+:error_handler
+set "error_msg="
+if not defined error_code set "error_code=%ERROR_UNKNOWN%"
+if "%error_code%"=="%ERROR_NETWORK%" set "error_msg=Network connectivity problem"
+if "%error_code%"=="%ERROR_UNAVAILABLE%" set "error_msg=Video unavailable or private"
+if "%error_code%"=="%ERROR_PERMISSION%" set "error_msg=Insufficient permissions"
+if "%error_code%"=="%ERROR_HW_ACCEL%" set "error_msg=Hardware acceleration error"
+if "%error_code%"=="%ERROR_ARIA2C%" set "error_msg=aria2c download error"
+if "%error_code%"=="%ERROR_INIT%" set "error_msg=Initialization error"
+if "%error_code%"=="%ERROR_UNKNOWN%" set "error_msg=Unknown error occurred"
+
+REM Log error details with timestamp
+echo ---------------------------------------- >> "%instance_log%"
+echo Error: !error_msg! (Code: %error_code%) >> "%instance_log%"
+echo Time: %date% %time% >> "%instance_log%"
+echo Command: %cmdline% >> "%instance_log%"
+echo Previous Operation: %previous_operation% >> "%instance_log%"
+echo ---------------------------------------- >> "%instance_log%"
+
+echo.
+echo Error occurred: !error_msg! (Code: %error_code%)
+echo Previous operation: %previous_operation%
+echo See log file: %instance_log%
+
+if "%error_code%"=="%ERROR_ARIA2C%" (
+    echo.
+    echo aria2c encountered an error
+    echo Retrying download without aria2c...
+    set "use_aria2c=false"
+    set "aria2c_args="
+    goto :retry_download
+)
+
+if "%hw_accel_available%"=="true" (
+    echo.
+    echo Hardware acceleration was enabled
+    echo Retrying without hardware acceleration...
+    set "hw_accel_available=false"
+    set "ffmpeg_args="
+    goto :retry_download
+)
+
+choice /c RMQ /n /m "Retry (R), Return to Menu (M), or Quit (Q)? "
+if errorlevel 3 goto :cleanup
+if errorlevel 2 goto :menu
+if errorlevel 1 goto :retry_download
 
 REM Check dependencies
 set "MISSING_DEPS="
@@ -80,7 +150,7 @@ set "embed_subs=true"
 set "auto_subs=true"
 set "embed_thumb=true"
 set "embed_meta=true"
-set "format_selection=bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+set "format_selection=bestvideo*+bestaudio/best"
 set "quality_str=Best Quality"
 
 REM Hardware acceleration detection
@@ -115,11 +185,38 @@ echo [!] No hardware acceleration available
 :hw_accel_done
 del "%instance_temp%\hwaccels.txt" 2>nul
 
-REM Configure optimized download settings
-set "ytdlp_base_args=--no-mtime --progress --no-warnings --no-continue --no-part"
+REM Configure base arguments for yt-dlp with better progress and stability
+set "ytdlp_base_args=--no-mtime --progress --console-title --newline --no-warnings --ignore-errors --no-call-home --no-check-certificate --quiet --no-progress"
 
-REM Configure aria2c for faster downloads
-set "aria2c_args=--downloader aria2c --downloader-args aria2c:-x16 -s16 -j16 -k1M --optimize-concurrent-downloads=true --file-allocation=none --continue=true --auto-file-renaming=false --allow-overwrite=true"
+REM Configure aria2c for stable downloads with optimized settings
+set "aria2c_args=--external-downloader aria2c --external-downloader-args "aria2c:--optimize-concurrent-downloads=true --max-concurrent-downloads=3 --max-connection-per-server=16 --split=16 --min-split-size=1M --max-tries=10 --retry-wait=5 --connect-timeout=10 --timeout=10 --continue=true --allow-overwrite=true --auto-file-renaming=false --file-allocation=none --disable-ipv6=true --summary-interval=0 --console-log-level=error --quiet=true""
+
+REM Configure output templates with better organization and safe filenames
+set "video_template=%%(title).80s [%%(id)s].%%(ext)s"
+set "playlist_template=%%(playlist_title).80s\%%(playlist_index)02d - %%(title).80s.%%(ext)s"
+set "channel_template=%%(uploader)s\%%(upload_date)s - %%(title).80s [%%(id)s].%%(ext)s"
+set "audio_template=%%(title).80s.%%(ext)s"
+set "live_template=%%(uploader)s\%%(upload_date)s_%%(title).80s [LIVE].%%(ext)s"
+
+REM Set base paths for different content types (using short paths to avoid length issues)
+set "VIDEO_OUT=%download_dir%\videos\%video_template%"
+set "PLAYLIST_OUT=%download_dir%\playlists\%playlist_template%"
+set "CHANNEL_OUT=%download_dir%\channels\%channel_template%"
+set "AUDIO_OUT=%download_dir%\audio\%audio_template%"
+set "LIVE_OUT=%download_dir%\live\%live_template%"
+
+REM Progress tracking function
+:show_progress
+echo [%date% %time%] Download Progress >> "%instance_log%"
+echo ----------------------------------------
+echo Content Type: %content_type%
+echo Quality: %quality_str%
+echo Hardware Acceleration: %hw_accel_available%
+echo Output Directory: %download_dir%
+echo.
+echo Progress will be logged to: %instance_log%
+echo Press Q to quit, P to pause
+echo ----------------------------------------
 
 REM Configure ffmpeg for hardware acceleration
 set "ffmpeg_args="
@@ -127,15 +224,23 @@ if "%hw_accel_available%"=="true" (
     set "ffmpeg_args=--postprocessor-args ffmpeg:-hwaccel !hw_accel! -hwaccel_device !hw_accel_device! -threads auto"
 )
 
-REM Configure output templates with better organization
-set "video_template=!download_dir!\videos\%%(title)s [%%(id)s]\%%(title)s.%%(ext)s"
-set "playlist_template=!download_dir!\playlists\%%(playlist_title)s\%%(playlist_index)02d - %%(title)s.%%(ext)s"
-set "channel_template=!download_dir!\channels\%%(channel)s\%%(upload_date)s - %%(title)s.%%(ext)s"
-set "audio_template=!download_dir!\audio\%%(title)s\%%(title)s.%%(ext)s"
-
 REM Main menu loop
 :menu
 cls
+REM Save error level before cls
+set "last_error=%errorlevel%"
+
+REM Clear previous error if menu is reached normally
+if "%previous_operation%"=="" set "error_code="
+
+REM Show error message if coming from an error
+if defined error_code (
+    echo.
+    echo Last error: !error_msg! (Code: !error_code!)
+    echo See log file: !instance_log!
+    echo.
+)
+
 echo ══════════════════════════════════════════════════════
 echo         Advanced YouTube Downloader v%VERSION%        
 echo ══════════════════════════════════════════════════════
@@ -219,15 +324,24 @@ set /p "quality=Select quality (1-3): "
 set /p "link=Enter video URL: "
 
 REM Set format based on quality selection
-if "%quality%"=="1" set "format_selection=bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-if "%quality%"=="2" set "format_selection=bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
-if "%quality%"=="3" set "format_selection=bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best"
+if "%quality%"=="1" (
+    set "format_selection=bestvideo*+bestaudio/best"
+    set "quality_str=Best Quality"
+)
+if "%quality%"=="2" (
+    set "format_selection=bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+    set "quality_str=1080p"
+)
+if "%quality%"=="3" (
+    set "format_selection=bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+    set "quality_str=720p"
+)
 
 echo.
 echo [Download Progress]
 echo • URL: %link%
 echo • Quality: %quality_str%
-echo • Output: !video_template!
+echo • Output: !VIDEO_OUT!
 echo • Hardware Accel: %hw_accel_available%
 echo.
 echo Starting download...
@@ -237,21 +351,25 @@ echo.
 REM Download with all features enabled
 yt-dlp.exe %ytdlp_base_args% ^
     -f "%format_selection%" ^
-    -o "!video_template!" ^
-    --write-description ^
+    -o "!VIDEO_OUT!" ^
     --write-thumbnail ^
-    --convert-thumbnails webp ^
     --embed-thumbnail ^
     --embed-metadata ^
     --embed-chapters ^
-    --write-auto-sub ^
+    --write-sub ^
     --sub-langs "en.*" ^
     --embed-subs ^
-    --merge-output-format mp4 ^
+    --merge-output-format "mp4" ^
+    --no-keep-fragments ^
+    --fragment-retries 10 ^
+    --retry-sleep 5 ^
     %aria2c_args% ^
     %ffmpeg_args% ^
     --cache-dir "!CACHE_DIR!" ^
-    "%link%"
+    "%link%" >nul 2>&1 || (
+    set "error_code=%errorlevel%"
+    goto :error_handler
+)
 
 REM Cleanup temp directory
 rd /s /q "%instance_temp%" 2>nul
@@ -270,7 +388,7 @@ if errorlevel 1 (
         echo Hardware acceleration was enabled
         echo Retrying without hardware acceleration...
         set "hw_accel_available=false"
-        set "ffmpeg_hw_flags="
+        set "ffmpeg_args="
         goto :retry_download
     )
     
@@ -301,15 +419,24 @@ set /p "quality=Select quality (1-3): "
 set /p "link=Enter playlist URL: "
 
 REM Set format based on quality selection
-if "%quality%"=="1" set "format_selection=bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-if "%quality%"=="2" set "format_selection=bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
-if "%quality%"=="3" set "format_selection=bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best"
+if "%quality%"=="1" (
+    set "format_selection=bestvideo*+bestaudio/best"
+    set "quality_str=Best Quality"
+)
+if "%quality%"=="2" (
+    set "format_selection=bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+    set "quality_str=1080p"
+)
+if "%quality%"=="3" (
+    set "format_selection=bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+    set "quality_str=720p"
+)
 
 echo.
 echo [Download Progress]
 echo • URL: %link%
 echo • Quality: %quality_str%
-echo • Output: !playlist_template!
+echo • Output: !PLAYLIST_OUT!
 echo • Hardware Accel: %hw_accel_available%
 echo.
 echo Starting download...
@@ -322,12 +449,15 @@ set "playlist_args=--yes-playlist --playlist-random --ignore-errors --no-abort-o
 yt-dlp.exe %ytdlp_base_args% ^
     %playlist_args% ^
     -f "%format_selection%" ^
-    -o "!playlist_template!" ^
+    -o "!PLAYLIST_OUT!" ^
     --write-auto-sub --embed-subs --embed-thumbnail --embed-metadata ^
     %aria2c_args% ^
     %ffmpeg_args% ^
     --cache-dir "!CACHE_DIR!" ^
-    "%link%"
+    "%link%" >nul 2>&1 || (
+    set "error_code=%errorlevel%"
+    goto :error_handler
+)
 
 REM Cleanup temp directory
 rd /s /q "%instance_temp%" 2>nul
@@ -346,7 +476,7 @@ if errorlevel 1 (
         echo Hardware acceleration was enabled
         echo Retrying without hardware acceleration...
         set "hw_accel_available=false"
-        set "ffmpeg_hw_flags="
+        set "ffmpeg_args="
         goto :retry_download
     )
     
@@ -380,9 +510,18 @@ set /p "limit=Enter number of videos to download (optional, press Enter for all)
 REM Generate a unique ID for this instance
 set "instance_id=%RANDOM%"
 
-if "%quality%"=="1" set "format_selection=bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-if "%quality%"=="2" set "format_selection=bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best"
-if "%quality%"=="3" set "format_selection=bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best"
+if "%quality%"=="1" (
+    set "format_selection=bestvideo*+bestaudio/best"
+    set "quality_str=Best Quality"
+)
+if "%quality%"=="2" (
+    set "format_selection=bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+    set "quality_str=1080p"
+)
+if "%quality%"=="3" (
+    set "format_selection=bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+    set "quality_str=720p"
+)
 
 REM Create unique temp directory for this instance
 md "%TEMP%\ytdl_temp_%instance_id%" 2>nul
@@ -395,7 +534,7 @@ echo.
 echo [Download Progress]
 echo • URL: %link%
 echo • Quality: %quality_str%
-echo • Output: %download_dir%
+echo • Output: !CHANNEL_OUT!
 echo • Hardware Accel: %hw_accel_available%
 echo.
 echo Starting download...
@@ -403,7 +542,7 @@ echo Press Q to quit, P to pause
 echo.
 
 REM Using optimized download settings for channel
-set "output_template=%download_dir%\channels\%%(uploader)s\%%(title)s.%%(ext)s"
+set "output_template=!CHANNEL_OUT!"
 
 REM Channel monitor specific arguments
 set "monitor_args=--download-archive "%monitor_archive%" --playlist-reverse --no-overwrites --continue"
@@ -418,7 +557,10 @@ yt-dlp.exe %ytdlp_base_args% ^
     %ffmpeg_args% ^
     --cache-dir "%instance_temp%" ^
     %channel_args% ^
-    "%link%"
+    "%link%" >nul 2>&1 || (
+    set "error_code=%errorlevel%"
+    goto :error_handler
+)
 
 REM Cleanup temp directory
 rd /s /q "%TEMP%\ytdl_temp_%instance_id%" 2>nul
@@ -437,7 +579,7 @@ if errorlevel 1 (
         echo Hardware acceleration was enabled
         echo Retrying without hardware acceleration...
         set "hw_accel_available=false"
-        set "ffmpeg_hw_flags="
+        set "ffmpeg_args="
         goto :retry_download
     )
     
@@ -483,7 +625,7 @@ echo.
 echo [Download Progress]
 echo • URL: %link%
 echo • Quality: %audio_ext%
-echo • Output: %download_dir%
+echo • Output: !AUDIO_OUT!
 echo • Hardware Accel: %hw_accel_available%
 echo.
 echo Starting download...
@@ -500,8 +642,11 @@ yt-dlp.exe %ytdlp_base_args% ^
     %aria2c_args% ^
     %ffmpeg_args% ^
     --cache-dir "%instance_temp%" ^
-    -o "%audio_template%" ^
-    "%link%"
+    -o "!AUDIO_OUT!" ^
+    "%link%" >nul 2>&1 || (
+    set "error_code=%errorlevel%"
+    goto :error_handler
+)
 
 REM Cleanup temp directory
 rd /s /q "%instance_temp%" 2>nul
@@ -544,10 +689,8 @@ if "%audio_format%"=="1" set "audio_ext=mp3"
 if "%audio_format%"=="3" set "audio_ext=wav"
 if "%audio_format%"=="4" set "audio_ext=opus"
 
-REM Generate a unique ID for this instance
+REM Generate unique instance ID
 set "instance_id=%RANDOM%"
-
-REM Create unique temp directory for this instance
 md "%TEMP%\ytdl_temp_%instance_id%" 2>nul
 
 REM Add before download commands
@@ -555,7 +698,7 @@ echo.
 echo [Download Progress]
 echo • URL: %link%
 echo • Quality: %audio_ext%
-echo • Output: %download_dir%
+echo • Output: !PLAYLIST_OUT!
 echo • Hardware Accel: %hw_accel_available%
 echo.
 echo Starting download...
@@ -563,7 +706,7 @@ echo Press Q to quit, P to pause
 echo.
 
 REM Using optimized download settings for playlist audio
-set "output_template=%download_dir%\playlists\%%(playlist)s\%%(playlist_index)s - %%(title)s.%%(ext)s"
+set "output_template=!PLAYLIST_OUT!"
 
 yt-dlp.exe %ytdlp_base_args% ^
     -f "%format_selection%" ^
@@ -572,7 +715,10 @@ yt-dlp.exe %ytdlp_base_args% ^
     %aria2c_args% ^
     %ffmpeg_args% ^
     --cache-dir "%instance_temp%" ^
-    "%link%"
+    "%link%" >nul 2>&1 || (
+    set "error_code=%errorlevel%"
+    goto :error_handler
+)
 
 REM Cleanup temp directory
 rd /s /q "%instance_temp%" 2>nul
@@ -629,8 +775,9 @@ echo     - Better memory management
 echo     - Automatic reconnection
 echo.
 echo  2. yt-dlp (Better for):
-echo     - Completed streams/VODs
+echo     - Already completed streams
 echo     - Streams with chapters
+echo     - Streams needing post-processing
 echo     - Higher quality options
 echo     - More post-processing
 echo.
@@ -710,6 +857,8 @@ echo Note: This method is better for:
 echo - Already completed streams
 echo - Streams with chapters
 echo - Streams needing post-processing
+echo - Higher quality options
+echo - More post-processing
 echo.
 set /p "link=Enter stream URL: "
 
@@ -718,7 +867,7 @@ set "instance_id=%RANDOM%"
 md "%TEMP%\ytdl_temp_%instance_id%" 2>nul
 
 REM Enhanced live stream settings for yt-dlp
-set "output_template=%download_dir%\live\%%(uploader)s\%%(upload_date)s_%%(title)s.%%(ext)s"
+set "output_template=!LIVE_OUT!"
 
 yt-dlp.exe %ytdlp_base_args% ^
     -f "%format_selection%" ^
@@ -727,10 +876,10 @@ yt-dlp.exe %ytdlp_base_args% ^
     %aria2c_args% ^
     %ffmpeg_args% ^
     --cache-dir "%instance_temp%" ^
-    "%link%"
-
-REM Cleanup
-rd /s /q "%TEMP%\ytdl_temp_%instance_id%" 2>nul
+    "%link%" >nul 2>&1 || (
+    set "error_code=%errorlevel%"
+    goto :error_handler
+)
 
 :monitor_channel
 REM Add instance-specific monitor files
@@ -749,7 +898,10 @@ yt-dlp.exe %ytdlp_base_args% ^
     %aria2c_args% ^
     %ffmpeg_args% ^
     --cache-dir "%instance_temp%" ^
-    "%link%"
+    "%link%" >nul 2>&1 || (
+    set "error_code=%errorlevel%"
+    goto :error_handler
+)
 
 :cleanup
 REM Clean only this instance's temp directory
@@ -758,23 +910,51 @@ exit /b 0
 
 :error_handler
 echo.
-echo Error occurred: !error_message!
+echo Error occurred during download (Code: !error_code!)
 echo.
 echo Common issues:
 echo • Network connectivity problems
 echo • Video unavailable or private
 echo • Insufficient permissions
 echo • Hardware acceleration issues
-echo • Cookie/authentication required
+echo • Format not available
+echo • Region restrictions
 echo.
+
+if "%error_code%"=="%ERROR_ARIA2C%" (
+    echo.
+    echo aria2c encountered an error
+    echo Retrying download without aria2c...
+    set "use_aria2c=false"
+    set "aria2c_args="
+    goto :retry_download
+)
+
+if "%hw_accel_available%"=="true" (
+    echo.
+    echo Hardware acceleration was enabled
+    echo Retrying without hardware acceleration...
+    set "hw_accel_available=false"
+    set "ffmpeg_args="
+    goto :retry_download
+)
+
 choice /c RMQ /n /m "Retry (R), Return to Menu (M), or Quit (Q)? "
-if errorlevel 3 goto cleanup
-if errorlevel 2 goto menu
+if errorlevel 3 goto :cleanup
+if errorlevel 2 goto :menu
 if errorlevel 1 goto :retry_download
 
 :retry_download
-echo Retrying download...
+echo.
+echo Retrying download with modified settings...
+echo [%date% %time%] Retrying download >> "%instance_log%"
 goto :%previous_operation%
 
-:handle_exit
-exit /b 0
+:cleanup
+rd /s /q "%instance_temp%" 2>nul
+if "%1"=="exit" exit /b %error_code%
+goto :menu
+
+:error
+if defined previous_operation goto :%previous_operation%
+goto :menu

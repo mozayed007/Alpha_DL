@@ -78,7 +78,6 @@ avutil-*.dll
 postproc-*.dll
 swresample-*.dll
 swscale-*.dll
-lib/
 include/
 
 # Compressed files
@@ -104,3 +103,8 @@ include/
 instance_*/
 *.instance
 *.state 
+#old util
+old_util.bat
+D:\YT\YT-dlp\prog\lib_ffmpeg
+.windsurfrules
+lib_ffmpeg\
