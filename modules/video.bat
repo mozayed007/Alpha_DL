@@ -50,6 +50,9 @@ if "%quality%"=="3" (
     set "quality_str=720p"
 )
 
+REM Set metadata embedding options
+set "metadata_opts=--write-thumbnail --embed-thumbnail --write-subs --write-auto-subs --embed-subs --embed-metadata --convert-thumbnails jpg"
+
 REM Set output template for videos
 set "output_template=%DOWNLOAD_DIR%\videos\%%(title)s.%%(ext)s"
 
@@ -71,7 +74,7 @@ for /f "tokens=1" %%a in ('yt-dlp.exe --print filesize "%link%" 2^>nul') do (
     if not "%%a"=="" if not "%%a"=="NA" call "%~dp0..\config\settings.bat" :set_aria2c_profile "%%a"
 )
 
-yt-dlp.exe %ytdlp_base_args% --format "%format_selection%" --output "%output_template%" %aria2c_args% %hw_accel_opts% "%link%" || (
+yt-dlp.exe %ytdlp_base_args% --format "%format_selection%" --output "%output_template%" %metadata_opts% %aria2c_args% %hw_accel_opts% "%link%" || (
     echo Download failed. Please check your internet connection and URL.
     call "%~dp0..\lib\error.bat" download_failed
     pause
@@ -106,7 +109,7 @@ for /f "tokens=1" %%a in ('yt-dlp.exe --print filesize "%link%" 2^>nul') do (
     if not "%%a"=="" if not "%%a"=="NA" call "%~dp0..\config\settings.bat" :set_aria2c_profile "%%a"
 )
 
-yt-dlp.exe %ytdlp_base_args% -f "%format%" -o "%output_template%" --write-thumbnail --embed-thumbnail --embed-metadata %aria2c_args% %hw_accel_opts% "%link%" || (
+yt-dlp.exe %ytdlp_base_args% -f "%format%" -o "%output_template%" %metadata_opts% %aria2c_args% %hw_accel_opts% "%link%" || (
     set "error_code=%errorlevel%"
     echo Error occurred with code: !error_code!
     pause
@@ -159,7 +162,7 @@ echo Starting batch download...
 echo Press Q to quit, P to pause
 echo.
 
-yt-dlp.exe %ytdlp_base_args% -f "%format_selection%" -o "%output_template%" --write-thumbnail --embed-thumbnail --embed-metadata %aria2c_args% %hw_accel_opts% -a "%TEMP_DIR%\batch_urls.txt" || (
+yt-dlp.exe %ytdlp_base_args% -f "%format_selection%" -o "%output_template%" %metadata_opts% %aria2c_args% %hw_accel_opts% -a "%TEMP_DIR%\batch_urls.txt" || (
     set "error_code=%errorlevel%"
     echo Error occurred with code: !error_code!
     pause

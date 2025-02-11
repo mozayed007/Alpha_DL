@@ -13,7 +13,7 @@ set "embed_meta=true"
 set "format_selection=bestvideo*+bestaudio/best"
 set "quality_str=Best Quality"
 
-REM Set up directory structure with short paths
+REM Set up directory structure with absolute paths
 pushd "%~dp0.."
 set "BASE_DIR=%CD%"
 popd
@@ -37,12 +37,12 @@ REM Configure base arguments for yt-dlp
 set "ytdlp_base_args=--no-mtime --no-call-home --no-check-certificate --progress"
 
 REM Configure aria2c profiles for different file sizes
-set "aria2c_small=aria2c:-x4 -s4 -j2 -k1M --optimize-concurrent-downloads=true --max-overall-download-limit=5M --min-split-size=5M"
-set "aria2c_medium=aria2c:-x8 -s8 -j4 -k1M --optimize-concurrent-downloads=true --max-overall-download-limit=10M --min-split-size=5M"
-set "aria2c_large=aria2c:-x16 -s16 -j8 -k1M --optimize-concurrent-downloads=true --max-overall-download-limit=0 --min-split-size=5M"
+set "aria2c_small=aria2c:-x4 -s4 -j4 -k1M --optimize-concurrent-downloads=true --file-allocation=none --max-overall-download-limit=0 --min-split-size=1M"
+set "aria2c_medium=aria2c:-x8 -s8 -j8 -k1M --optimize-concurrent-downloads=true --file-allocation=none --max-overall-download-limit=0 --min-split-size=1M"
+set "aria2c_large=aria2c:-x16 -s16 -j16 -k1M --optimize-concurrent-downloads=true --file-allocation=none --max-overall-download-limit=0 --min-split-size=1M"
 
 REM Default to medium profile with common options
-set "aria2c_common=--console-log-level=notice --summary-interval=1 --file-allocation=none --show-console-readout=true --download-result=full --auto-file-renaming=false --human-readable=true"
+set "aria2c_common=--console-log-level=notice --summary-interval=1 --show-console-readout=true --download-result=full --auto-file-renaming=false --allow-overwrite=true --human-readable=true"
 set "aria2c_profile=medium"
 
 REM Function to set aria2c profile based on file size (called by download modules)
@@ -50,13 +50,13 @@ REM Function to set aria2c profile based on file size (called by download module
 if "%~1"=="" goto :eof
 set "filesize=%~1"
 if %filesize% LEQ 104857600 (
-    REM Less than 100MB
+    REM Less than 100MB (good for audio)
     set "aria2c_profile=small"
 ) else if %filesize% LEQ 524288000 (
-    REM Less than 500MB
+    REM Less than 500MB (good for medium quality video)
     set "aria2c_profile=medium"
 ) else (
-    REM Larger than 500MB
+    REM Larger than 500MB (good for HD video)
     set "aria2c_profile=large"
 )
 if "%aria2c_profile%"=="small" set "aria2c_args=--downloader aria2c --downloader-args "%aria2c_small% %aria2c_common%""
@@ -95,5 +95,10 @@ set "hw_accel_available=false"
 set "hw_accel="
 set "hw_accel_device="
 set "ffmpeg_args="
+
+set "module_enabled=true"
+
+REM Remove the paths.bat call since we handle paths here
+set "download_base=%BASE_DIR%\downloads"
 
 exit /b 0

@@ -33,8 +33,11 @@ if "%quality%"=="3" (
     set "quality_str=720p"
 )
 
+REM Set metadata embedding options
+set "metadata_opts=--write-thumbnail --embed-thumbnail --write-subs --write-auto-subs --embed-subs --embed-metadata --convert-thumbnails jpg"
+
 REM Set output template for live streams
-set "output_template=%DOWNLOAD_DIR%\live\%%(title)s_%%(upload_date)s.%%(ext)s"
+set "output_template=%LIVE_OUT%"
 
 REM Display download information
 echo.
@@ -49,15 +52,15 @@ echo Starting download...
 echo Press Q to quit, P to pause
 echo.
 
-REM Add live stream specific arguments
-set "live_args=--live-from-start --wait-for-video 5"
+REM Add live-specific arguments
+set "live_args=--live-from-start --wait-for-video 5-30 --retries infinite --concurrent-fragments 5"
 
 REM Get stream info and set appropriate download profile
 for /f "tokens=1" %%a in ('yt-dlp.exe --print filesize "%link%" 2^>nul') do (
     if not "%%a"=="" if not "%%a"=="NA" call "%~dp0..\config\settings.bat" :set_aria2c_profile "%%a"
 )
 
-yt-dlp.exe %ytdlp_base_args% %live_args% -f "%format_selection%" -o "%output_template%" --write-thumbnail --embed-thumbnail --embed-metadata %aria2c_args% %hw_accel_opts% "%link%" || (
+yt-dlp.exe %ytdlp_base_args% %live_args% -f "%format_selection%" -o "%output_template%" %metadata_opts% %aria2c_args% %hw_accel_opts% "%link%" || (
     echo Download failed. Please check your internet connection and URL.
     call "%~dp0..\lib\error.bat" download_failed
     pause
@@ -179,7 +182,7 @@ exit /b 0
 set /p "link=Enter stream URL: "
 call "%~dp0..\utils\progress.bat" "live_ytdlp" "%link%" "best" "!LIVE_OUT!"
 
-set "live_args=--live-from-start --wait-for-video 5-30 --retries infinite"
+set "live_args=--live-from-start --wait-for-video 5-30 --retries infinite --concurrent-fragments 5"
 
 REM Get stream info and set appropriate download profile
 for /f "tokens=1" %%a in ('yt-dlp.exe --print filesize "%link%" 2^>nul') do (

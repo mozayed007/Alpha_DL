@@ -63,4 +63,13 @@ if "%choice%"=="20" exit /b 1
 
 REM Call dispatcher with the choice
 call "%~dp0..\modules\dispatcher.bat" "%choice%"
+
+echo 4. Module Operations
+choice /c 1234 /n /m "Select an option: "
+if errorlevel 4 (
+    REM Handle module operations
+    call "%~dp0..\modules\someModuleOperation.bat"
+    goto :eof
+)
+
 exit /b %errorlevel%

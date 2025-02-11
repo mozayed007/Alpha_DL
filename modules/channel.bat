@@ -34,8 +34,11 @@ if "%quality%"=="3" (
     set "quality_str=720p"
 )
 
+REM Set metadata embedding options
+set "metadata_opts=--write-thumbnail --embed-thumbnail --write-subs --write-auto-subs --embed-subs --embed-metadata --convert-thumbnails jpg"
+
 REM Set output template for channels
-set "output_template=%DOWNLOAD_DIR%\channels\%%(uploader)s\%%(playlist_index)s - %%(title)s.%%(ext)s"
+set "output_template=%CHANNEL_OUT%"
 
 REM Display download information
 echo.
@@ -63,7 +66,7 @@ for /f "tokens=1" %%a in ('yt-dlp.exe --print filesize "%link%" 2^>nul') do (
 REM Add channel-specific arguments
 set "channel_args=--yes-playlist --no-overwrites --ignore-errors --no-abort-on-error"
 
-yt-dlp.exe %ytdlp_base_args% %channel_args% -f "%format_selection%" -o "%output_template%" --write-thumbnail --embed-thumbnail --embed-metadata %playlist_range% %aria2c_args% %hw_accel_opts% "%link%" || (
+yt-dlp.exe %ytdlp_base_args% %channel_args% -f "%format_selection%" -o "%output_template%" %metadata_opts% %playlist_range% %aria2c_args% %hw_accel_opts% "%link%" || (
     echo Download failed. Please check your internet connection and URL.
     call "%~dp0..\lib\error.bat" download_failed
     pause

@@ -1,0 +1,3 @@
+REM Use %download_dir% (set based on download_base in init.bat) for target folder
+set "target_folder=%download_dir%"
+REM ...existing code that downloads files to !target_folder!...

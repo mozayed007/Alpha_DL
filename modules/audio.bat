@@ -37,8 +37,11 @@ if "%format%"=="4" (
     set "format_str=OPUS"
 )
 
+REM Set metadata embedding options
+set "metadata_opts=--embed-metadata --embed-thumbnail --convert-thumbnails jpg"
+
 REM Set output template for audio
-set "output_template=%DOWNLOAD_DIR%\audio\%%(title)s.%%(ext)s"
+set "output_template=%AUDIO_OUT%"
 
 REM Display download information
 echo.
@@ -58,7 +61,7 @@ for /f "tokens=1" %%a in ('yt-dlp.exe --print filesize "%link%" 2^>nul') do (
 )
 
 REM Download with all features enabled
-yt-dlp.exe %ytdlp_base_args% -f "bestaudio" -x --audio-format %audio_format% --audio-quality 0 --embed-metadata --embed-thumbnail -o "%output_template%" %aria2c_args% %hw_accel_opts% "%link%" || (
+yt-dlp.exe %ytdlp_base_args% -f "bestaudio" -x --audio-format %audio_format% --audio-quality 0 -o "%output_template%" %metadata_opts% %aria2c_args% %hw_accel_opts% "%link%" || (
     echo Download failed. Please check your internet connection and URL.
     call "%~dp0..\lib\error.bat" download_failed
     pause

@@ -80,4 +80,20 @@ echo [!] No hardware acceleration available
 :hw_accel_done
 del "%instance_temp%\hwaccels.txt" 2>nul
 
+REM Set download directory based on object type and title
+if defined object_type (
+    if /i "%object_type%"=="playlist" (
+        set "download_dir=%download_base%\playlists\%object_title%"
+    ) else if /i "%object_type%"=="channel" (
+        set "download_dir=%download_base%\channels\%object_title%"
+    ) else (
+        set "download_dir=%download_base%\others\%object_title%"
+    )
+) else (
+    set "download_dir=%download_base%"
+)
+if not exist "%download_dir%" mkdir "%download_dir%"
+
+REM Future: Initialize library components interacting with modules.
+
 exit /b 0

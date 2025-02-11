@@ -10,8 +10,16 @@ cd /d "%SCRIPT_DIR%"
 
 REM Load core components
 call "%SCRIPT_DIR%config\settings.bat"
-call "%SCRIPT_DIR%config\paths.bat"
+call "%SCRIPT_DIR%config\paths.bat"  REM Load updated download_base
 call "%SCRIPT_DIR%lib\init.bat"
+
+REM New: Initialize modules
+call "%SCRIPT_DIR%modules\init.bat"
+if errorlevel 1 (
+    echo Error initializing modules
+    pause
+    exit /b 1
+)
 
 if errorlevel 1 (
     echo Error initializing system
