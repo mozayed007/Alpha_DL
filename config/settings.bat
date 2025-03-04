@@ -10,8 +10,13 @@ set "embed_subs=true"
 set "auto_subs=true"
 set "embed_thumb=true"
 set "embed_meta=true"
-set "format_selection=bestvideo*+bestaudio/best"
+set "merge_output_format=mkv"
+set "format_selection=bestvideo+bestaudio/bestvideo+bestaudio/best"
 set "quality_str=Best Quality"
+set "use_cookies=true"
+set "cookies_file=%BASE_DIR%\cookies.txt"
+set "cookie_browser="
+set "cookie_browser_args="
 
 REM Set up directory structure with absolute paths
 pushd "%~dp0.."
@@ -34,7 +39,24 @@ md "%CACHE_DIR%" 2>nul
 md "%LOG_DIR%" 2>nul
 
 REM Configure base arguments for yt-dlp
-set "ytdlp_base_args=--no-mtime --no-call-home --no-check-certificate --progress"
+set "ytdlp_base_args=--no-mtime --no-call-home --no-check-certificate --progress --no-keep-video --restrict-filenames --no-hls-use-mpegts --hls-prefer-native --prefer-ffmpeg --extractor-args youtube:player_skip=webpage,configs,js"
+
+REM Add cookie handling to base arguments if enabled
+if "%use_cookies%"=="true" (
+    if defined cookie_browser (
+        REM Use browser cookies directly
+        set "ytdlp_base_args=%ytdlp_base_args% %cookie_browser_args%"
+    ) else if exist "%cookies_file%" (
+        REM Use cookies file as fallback
+        set "ytdlp_base_args=%ytdlp_base_args% --cookies %cookies_file%"
+    ) else (
+        echo Cookie settings not configured. Run the Cookie Settings menu to configure.
+        echo See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp
+    )
+)
+
+REM Add retry and sleep settings to handle rate limiting
+set "ytdlp_base_args=%ytdlp_base_args% --sleep-requests 1 --sleep-interval 5 --max-sleep-interval 30 --geo-bypass"
 
 REM Configure aria2c profiles for different file sizes
 set "aria2c_small=aria2c:-x4 -s4 -j4 -k1M --optimize-concurrent-downloads=true --file-allocation=none --max-overall-download-limit=0 --min-split-size=1M"
@@ -100,5 +122,8 @@ set "module_enabled=true"
 
 REM Remove the paths.bat call since we handle paths here
 set "download_base=%BASE_DIR%\downloads"
+
+REM Add post-processing configuration
+set "post_process_args=--merge-output-format mkv --remux-video mkv --embed-chapters"
 
 exit /b 0

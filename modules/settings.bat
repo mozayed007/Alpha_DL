@@ -183,33 +183,77 @@ echo ===================================================
 echo              Cookie Settings
 echo ===================================================
 echo.
-echo 1. Import cookies from browser
-echo 2. Load cookies from file
-echo 3. Clear cookies
+echo Cookie settings help you bypass YouTube's anti-bot protection
+echo and access member-only content.
 echo.
-set /p "option=Select option (1-3): "
+echo Options:
+echo  1. Use browser cookies directly (recommended)
+echo  2. Enable/disable cookie usage (currently: %use_cookies%)
+echo  3. View cookie status
+echo  4. Return to main menu
+echo.
+set /p "choice=Select option (1-4): "
 
-if "%option%"=="1" (
-    echo Select browser:
-    echo 1. Chrome
-    echo 2. Firefox
-    echo 3. Edge
-    set /p "browser=Select browser (1-3): "
-    if "%browser%"=="1" yt-dlp.exe --cookies-from-browser chrome
-    if "%browser%"=="2" yt-dlp.exe --cookies-from-browser firefox
-    if "%browser%"=="3" yt-dlp.exe --cookies-from-browser edge
+if "%choice%"=="1" (
+    call "%~dp0..\utils\export_cookies.bat"
+    goto cookie_settings
 )
-if "%option%"=="2" (
-    set /p "cookie_file=Enter path to cookie file: "
-    copy "%cookie_file%" "%TEMP_DIR%\cookies.txt" >nul
+
+if "%choice%"=="2" (
+    if "%use_cookies%"=="true" (
+        set "use_cookies=false"
+        echo Cookie usage disabled.
+    ) else (
+        set "use_cookies=true" 
+        echo Cookie usage enabled.
+    )
+    
+    REM Save the setting
+    call "%~dp0..\config\settings.bat"
+    
+    timeout /t 2 >nul
+    goto cookie_settings
 )
-if "%option%"=="3" (
-    del "%TEMP_DIR%\cookies.txt" 2>nul
+
+if "%choice%"=="3" (
+    echo.
+    echo [Cookie Status]
+    echo.
+    echo Cookie usage: %use_cookies%
+    
+    if defined cookie_browser (
+        echo Cookie method: Direct browser access (%cookie_browser%)
+        echo Browser cookie flags: %cookie_browser_args%
+    ) else (
+        echo Cookie method: File-based
+        echo Cookie file: %cookies_file%
+        
+        if exist "%cookies_file%" (
+            echo Cookie file exists: YES
+            echo Cookie file size: 
+            for %%A in ("%cookies_file%") do echo   %%~zA bytes
+            echo Cookie file date: 
+            for %%A in ("%cookies_file%") do echo   %%~tA
+        ) else (
+            echo Cookie file exists: NO
+            echo.
+            echo You need to configure cookie settings.
+            echo Select option 1 to setup browser cookies.
+        )
+    )
+    
+    echo.
+    pause
+    goto cookie_settings
 )
-echo.
-echo Cookie settings updated!
-pause
-exit /b 0
+
+if "%choice%"=="4" (
+    exit /b 0
+)
+
+echo Invalid option. Please try again.
+timeout /t 2 >nul
+goto cookie_settings
 
 :update_ytdlp
 cls

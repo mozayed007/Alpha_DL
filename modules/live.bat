@@ -39,6 +39,9 @@ set "metadata_opts=--write-thumbnail --embed-thumbnail --write-subs --write-auto
 REM Set output template for live streams
 set "output_template=%LIVE_OUT%"
 
+REM Set post-processing arguments
+set "post_process_args=--merge-output-format mkv --remux-video mkv --embed-chapters"
+
 REM Display download information
 echo.
 echo [Download Information]
@@ -53,23 +56,25 @@ echo Press Q to quit, P to pause
 echo.
 
 REM Add live-specific arguments
-set "live_args=--live-from-start --wait-for-video 5-30 --retries infinite --concurrent-fragments 5"
+set "live_args=--live-from-start --wait-for-video 5-30 --retries infinite --concurrent-fragments 5 --hls-prefer-native --no-hls-use-mpegts"
 
 REM Get stream info and set appropriate download profile
 for /f "tokens=1" %%a in ('yt-dlp.exe --print filesize "%link%" 2^>nul') do (
     if not "%%a"=="" if not "%%a"=="NA" call "%~dp0..\config\settings.bat" :set_aria2c_profile "%%a"
 )
 
-yt-dlp.exe %ytdlp_base_args% %live_args% -f "%format_selection%" -o "%output_template%" %metadata_opts% %aria2c_args% %hw_accel_opts% "%link%" || (
+yt-dlp.exe %ytdlp_base_args% %live_args% -f "%format_selection%" -o "%output_template%" %metadata_opts% %aria2c_args% %hw_accel_opts% --no-part %post_process_args% "%link%" || (
     echo Download failed. Please check your internet connection and URL.
     call "%~dp0..\lib\error.bat" download_failed
     pause
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 
 echo Download completed successfully!
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b
 
 :live_stream
 cls
@@ -171,18 +176,20 @@ call "%~dp0..\utils\progress.bat" "live_ytarchive" "%link%" "%quality_str%" "!LI
 ytarchive.exe --threads 3 --output "!LIVE_OUT!" %extra_args% "%link%" "%quality_str%" || (
     set "error_code=%errorlevel%"
     call "%~dp0..\lib\error.bat" handle_error
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 
 echo Download complete!
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b
 
 :live_stream_ytdlp
 set /p "link=Enter stream URL: "
 call "%~dp0..\utils\progress.bat" "live_ytdlp" "%link%" "best" "!LIVE_OUT!"
 
-set "live_args=--live-from-start --wait-for-video 5-30 --retries infinite --concurrent-fragments 5"
+set "live_args=--live-from-start --wait-for-video 5-30 --retries infinite --concurrent-fragments 5 --hls-prefer-native --no-hls-use-mpegts"
 
 REM Get stream info and set appropriate download profile
 for /f "tokens=1" %%a in ('yt-dlp.exe --print filesize "%link%" 2^>nul') do (
@@ -196,16 +203,21 @@ yt-dlp.exe %ytdlp_base_args% ^
     --write-thumbnail ^
     --embed-thumbnail ^
     --embed-metadata ^
-    --embed-chapters ^
     %aria2c_args% ^
-    %ffmpeg_args% ^
+    --no-part ^
+    --no-mtime ^
+    --merge-output-format mkv ^
+    --remux-video mkv ^
+    --embed-chapters ^
     --cache-dir "!CACHE_DIR!" ^
     "%link%" >nul 2>&1 || (
     set "error_code=%errorlevel%"
     call "%~dp0..\lib\error.bat" handle_error
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 
 echo Download complete!
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b

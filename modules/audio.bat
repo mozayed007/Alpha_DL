@@ -65,9 +65,11 @@ yt-dlp.exe %ytdlp_base_args% -f "bestaudio" -x --audio-format %audio_format% --a
     echo Download failed. Please check your internet connection and URL.
     call "%~dp0..\lib\error.bat" download_failed
     pause
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 
 echo Download completed successfully!
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b

@@ -26,27 +26,29 @@ set /p "quality=Select quality (1-3): "
 if not "%quality%"=="1" if not "%quality%"=="2" if not "%quality%"=="3" (
     echo Invalid quality selection. Please choose 1, 2, or 3.
     pause
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 
 set /p "link=Enter video URL: "
 if "%link%"=="" (
     echo URL cannot be empty.
     pause
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 
 REM Set format based on quality selection
 if "%quality%"=="1" (
-    set "format_selection=bestvideo*+bestaudio/best"
+    set "format_selection=bestvideo[protocol!=http_dash_segments][protocol!=m3u8]*+bestaudio/best"
     set "quality_str=Best Quality"
 )
 if "%quality%"=="2" (
-    set "format_selection=bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+    set "format_selection=bestvideo[height<=1080][protocol!=http_dash_segments][protocol!=m3u8]+bestaudio/best[height<=1080]"
     set "quality_str=1080p"
 )
 if "%quality%"=="3" (
-    set "format_selection=bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+    set "format_selection=bestvideo[height<=720][protocol!=http_dash_segments][protocol!=m3u8]+bestaudio/best[height<=720]"
     set "quality_str=720p"
 )
 
@@ -74,16 +76,21 @@ for /f "tokens=1" %%a in ('yt-dlp.exe --print filesize "%link%" 2^>nul') do (
     if not "%%a"=="" if not "%%a"=="NA" call "%~dp0..\config\settings.bat" :set_aria2c_profile "%%a"
 )
 
-yt-dlp.exe %ytdlp_base_args% --format "%format_selection%" --output "%output_template%" %metadata_opts% %aria2c_args% %hw_accel_opts% "%link%" || (
+REM Set post-processing arguments
+set "post_process_args=--merge-output-format mkv --remux-video mkv --embed-chapters"
+
+yt-dlp.exe %ytdlp_base_args% --format "%format_selection%" --output "%output_template%" %metadata_opts% %aria2c_args% --no-part %hw_accel_opts% %post_process_args% "%link%" || (
     echo Download failed. Please check your internet connection and URL.
     call "%~dp0..\lib\error.bat" download_failed
     pause
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 
 echo Download completed successfully!
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b
 
 :custom_format
 cls
@@ -109,18 +116,23 @@ for /f "tokens=1" %%a in ('yt-dlp.exe --print filesize "%link%" 2^>nul') do (
     if not "%%a"=="" if not "%%a"=="NA" call "%~dp0..\config\settings.bat" :set_aria2c_profile "%%a"
 )
 
-yt-dlp.exe %ytdlp_base_args% -f "%format%" -o "%output_template%" %metadata_opts% %aria2c_args% %hw_accel_opts% "%link%" || (
+REM Set post-processing arguments
+set "post_process_args=--merge-output-format mkv --remux-video mkv --embed-chapters"
+
+yt-dlp.exe %ytdlp_base_args% -f "%format%" -o "%output_template%" %metadata_opts% %aria2c_args% --no-part %hw_accel_opts% %post_process_args% "%link%" || (
     set "error_code=%errorlevel%"
     echo Error occurred with code: !error_code!
     pause
     call "%~dp0..\lib\error.bat" handle_error
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 
 echo.
 echo Download complete!
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b
 
 :batch_download
 cls
@@ -142,15 +154,15 @@ set /p "quality=Select quality (1-3): "
 
 REM Set format based on quality selection
 if "%quality%"=="1" (
-    set "format_selection=bestvideo*+bestaudio/best"
+    set "format_selection=bestvideo[protocol!=http_dash_segments][protocol!=m3u8]*+bestaudio/best"
     set "quality_str=Best Quality"
 )
 if "%quality%"=="2" (
-    set "format_selection=bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+    set "format_selection=bestvideo[height<=1080][protocol!=http_dash_segments][protocol!=m3u8]+bestaudio/best[height<=1080]"
     set "quality_str=1080p"
 )
 if "%quality%"=="3" (
-    set "format_selection=bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+    set "format_selection=bestvideo[height<=720][protocol!=http_dash_segments][protocol!=m3u8]+bestaudio/best[height<=720]"
     set "quality_str=720p"
 )
 
@@ -162,19 +174,24 @@ echo Starting batch download...
 echo Press Q to quit, P to pause
 echo.
 
-yt-dlp.exe %ytdlp_base_args% -f "%format_selection%" -o "%output_template%" %metadata_opts% %aria2c_args% %hw_accel_opts% -a "%TEMP_DIR%\batch_urls.txt" || (
+REM Set post-processing arguments
+set "post_process_args=--merge-output-format mkv --remux-video mkv --embed-chapters"
+
+yt-dlp.exe %ytdlp_base_args% -f "%format_selection%" -o "%output_template%" %metadata_opts% %aria2c_args% --no-part %hw_accel_opts% %post_process_args% -a "%TEMP_DIR%\batch_urls.txt" || (
     set "error_code=%errorlevel%"
     echo Error occurred with code: !error_code!
     pause
     call "%~dp0..\lib\error.bat" handle_error
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 
 del "%TEMP_DIR%\batch_urls.txt" 2>nul
 echo.
 echo Batch download complete!
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b
 
 :show_info
 cls
@@ -189,7 +206,8 @@ echo.
 yt-dlp.exe --dump-json "%link%" | python -m json.tool
 echo.
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b
 
 :list_formats
 cls
@@ -204,7 +222,8 @@ echo.
 yt-dlp.exe -F "%link%"
 echo.
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b
 
 :download_thumb
 cls
@@ -220,12 +239,14 @@ yt-dlp.exe %ytdlp_base_args% --write-thumbnail --skip-download -o "%DOWNLOAD_DIR
     echo Error occurred with code: !error_code!
     pause
     call "%~dp0..\lib\error.bat" handle_error
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 echo.
 echo Thumbnail downloaded!
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b
 
 :download_subs
 cls
@@ -246,9 +267,11 @@ yt-dlp.exe %ytdlp_base_args% --write-subs --write-auto-subs --skip-download -o "
     echo Error occurred with code: !error_code!
     pause
     call "%~dp0..\lib\error.bat" handle_error
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 echo.
 echo Subtitles downloaded!
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b

@@ -22,15 +22,15 @@ set /p "end=Enter end index (optional, press Enter for all): "
 
 REM Set format based on quality selection
 if "%quality%"=="1" (
-    set "format_selection=bestvideo*+bestaudio/best"
+    set "format_selection=bestvideo[protocol!=http_dash_segments][protocol!=m3u8]*+bestaudio/best"
     set "quality_str=Best Quality"
 )
 if "%quality%"=="2" (
-    set "format_selection=bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+    set "format_selection=bestvideo[height<=1080][protocol!=http_dash_segments][protocol!=m3u8]+bestaudio/best[height<=1080]"
     set "quality_str=1080p"
 )
 if "%quality%"=="3" (
-    set "format_selection=bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+    set "format_selection=bestvideo[height<=720][protocol!=http_dash_segments][protocol!=m3u8]+bestaudio/best[height<=720]"
     set "quality_str=720p"
 )
 
@@ -66,13 +66,18 @@ for /f "tokens=1" %%a in ('yt-dlp.exe --print filesize "%link%" 2^>nul') do (
 REM Add channel-specific arguments
 set "channel_args=--yes-playlist --no-overwrites --ignore-errors --no-abort-on-error"
 
-yt-dlp.exe %ytdlp_base_args% %channel_args% -f "%format_selection%" -o "%output_template%" %metadata_opts% %playlist_range% %aria2c_args% %hw_accel_opts% "%link%" || (
+REM Set post-processing arguments
+set "post_process_args=--merge-output-format mkv --remux-video mkv --embed-chapters"
+
+yt-dlp.exe %ytdlp_base_args% %channel_args% -f "%format_selection%" -o "%output_template%" %metadata_opts% %aria2c_args% --no-part %hw_accel_opts% %post_process_args% %playlist_range% "%link%" || (
     echo Download failed. Please check your internet connection and URL.
     call "%~dp0..\lib\error.bat" download_failed
     pause
-    exit /b 1
+    call "%~dp0..\lib\return_to_menu.bat"
+    exit /b
 )
 
 echo Download completed successfully!
 pause
-exit /b 0
+call "%~dp0..\lib\return_to_menu.bat"
+exit /b
